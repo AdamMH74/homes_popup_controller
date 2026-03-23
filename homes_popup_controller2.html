@@ -134,7 +134,7 @@
             updateStatus(`Call control : Opening Homes tab from existing call: ${url.toString()}`);
 
             // navigate the already-opened tab
-            crmTab.location = url.toString();
+            crmTab.location.href = url.toString();
         } else {
             updateStatus(`Call control : Homes pops up for the initial agent only.`);
         }
@@ -199,11 +199,11 @@
 
               const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
 
-              if (isFirstAgent && popUrl && !crmTab) {
+              if (isFirstAgent && popUrl && crmTab) {
                 const url = new URL(popUrl);
                 url.searchParams.set('p2', user.email); // Add the agent's email as 'p2'
                 updateStatus(`Opening HOMES tab: ${url.toString()}`);
-                crmTab.location = url.toString();
+                crmTab.location.href = url.toString();
               }
             }
 
@@ -238,7 +238,7 @@
         }
 				
 		// Check for existing active calls
-		checkExistingActiveCalls(user, 0);
+		checkExistingActiveCalls(user, 0, crmTab);
 		
       } catch (err) {
         console.error('[HOMES Popup Controller] Initialization error:', err);
@@ -259,7 +259,7 @@
     updateStatus('Application bootstrapped.');
 
     // Open the CRM tab synchronously — Chrome will allow this
-    crmTab = window.open('about:blank', '_blank', 'noopener');
+    crmTab = window.open('about:blank', '_blank');
 
     myClientApp.lifecycle.bootstrapped();
 });
