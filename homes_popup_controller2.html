@@ -34,7 +34,8 @@
 
     document.getElementById('statusBox').innerHTML = `<p><strong>Status:</strong> HOMES Popup Controller v${VERSION}</p>`;
 
-    const platformClient = require('platformClient');
+    //const platformClient = require('platformClient');
+	const platformClient = window.platformClient;
     const client = platformClient.ApiClient.instance;
     const notificationsApi = new platformClient.NotificationsApi();
     const conversationsApi = new platformClient.ConversationsApi();
