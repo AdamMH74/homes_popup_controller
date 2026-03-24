@@ -2,251 +2,53 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>HOMES Popup Controller</title>
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+  <title>HOMES UI</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 10px; }
-    .tab-bar { display: flex; gap: 10px; margin-bottom: 10px; }
-    .tab-button { padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; background-color: #e0e0e0; }
-    .tab-button.active { background-color: #007bff; color: white; }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-    .info-container { background-color: #f5f5f5; padding: 15px; border-radius: 6px; font-size: 14px; line-height: 1.5; max-height: 400px; overflow-y: auto; }
-    iframe { width: 100%; height: 400px; border: none; border-radius: 6px; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
+    h1 { font-size: 18px; color: #007bff; }
+    .info { background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+    .label { font-weight: bold; }
   </style>
 </head>
 <body>
-
-  <!-- Tab Bar -->
-  <div class="tab-bar">
-    <button class="tab-button active" data-tab="homes">HOMES</button>
-    <button class="tab-button" data-tab="status">Status</button>
-  </div>
-
-  <!-- Tab Content -->
-  <div class="tab-content">
-    <!-- HOMES Tab -->
-    <div id="homes" class="tab-panel active">
-      <iframe id="crmIframe" src="about:blank"></iframe>
-    </div>
-
-    <!-- Status Tab -->
-    <div id="status" class="tab-panel">
-      <div class="info-container" id="statusBox">
-        <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.1.1...</p>
-      </div>
-    </div>
+  <h1>HOMES Page</h1>
+  <div class="info">
+    <p><span class="label">Conversation ID:</span> <span id="conversationId">N/A</span></p>
+    <p><span class="label">Agent Email:</span> <span id="agentEmail">N/A</span></p>
+    <p><span class="label">Language:</span> <span id="language">N/A</span></p>
+    <p><span class="label">Host Origin:</span> <span id="hostOrigin">N/A</span></p>
+    <p><span class="label">Target Env:</span> <span id="targetEnv">N/A</span></p>
+    <p><span class="label">Debug:</span> <span id="debug">N/A</span></p>
   </div>
 
   <script>
-    const VERSION = '1.1.1';
-    const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
-    const existingCallCheckInterval = 2500;
-    const existingCallMaxChecks = 20;
+    // ==================== Read URL parameters ====================
+    const params = new URLSearchParams(window.location.search);
+    const conversationId = params.get('gc_conversationId') || 'N/A';
+    const agentEmail = params.get('agentEmail') || 'N/A';
+    const language = params.get('language') || 'en-US';
+    const hostOrigin = params.get('gcHostOrigin') || window.location.origin;
+    const targetEnv = params.get('gcTargetEnv') || 'mypurecloud.com';
+    const debug = params.get('debug') || 'false';
 
-    const platformClient = require('platformClient');
-    const client = platformClient.ApiClient.instance;
-    const notificationsApi = new platformClient.NotificationsApi();
-    const conversationsApi = new platformClient.ConversationsApi();
-    const usersApi = new platformClient.UsersApi();
+    // ==================== Populate DOM ====================
+    document.getElementById('conversationId').textContent = conversationId;
+    document.getElementById('agentEmail').textContent = agentEmail;
+    document.getElementById('language').textContent = language;
+    document.getElementById('hostOrigin').textContent = hostOrigin;
+    document.getElementById('targetEnv').textContent = targetEnv;
+    document.getElementById('debug').textContent = debug;
 
-    let crmTab = document.getElementById('crmIframe');
-    let config = null;
-
-    // ==================== Tab Switching ====================
-    document.querySelectorAll('.tab-button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
-        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
-        document.getElementById(tab).classList.add('active');
-      });
-    });
-
-    // ==================== Helpers ====================
-    function updateStatus(message) {
-      const statusBox = document.getElementById('statusBox');
-      const p = document.createElement('p');
-      p.textContent = message;
-      statusBox.appendChild(p);
-      statusBox.scrollTop = statusBox.scrollHeight;
-      console.log('[HOMES]', message);
-    }
-
-    function updateTabStatus(isOpen) {
-      crmTab.style.border = isOpen ? '2px solid #28a745' : '2px solid #dc3545';
-    }
-
-    function getHomesUrl(conversationId = '') {
-      const params = new URLSearchParams({
-        gc_conversationId: conversationId,
-        gcUsePopupAuth: 'true',
-        language: config.gcLangTag || 'en-US',
-        gcHostOrigin: config.gcHostOrigin || window.location.origin,
-        gcTargetEnv: config.gcTargetEnv || 'mypurecloud.com',
-        debug: 'false'
-      });
-      return `https://AdamMH74.github.io/homes_popup_controller/homes_popup_controller2.html?${params.toString()}`;
-    }
-
-    function openCrmTab(url) {
-      crmTab.src = url.toString();
-      updateTabStatus(true);
-      updateStatus(`HOMES tab navigated to ${url}`);
-    }
-
-    function closeCrmTab() {
-      crmTab.src = getHomesUrl();
-      updateTabStatus(true);
-      updateStatus('HOMES tab reset to default after wrap-up.');
-    }
-
-    // ==================== Config ====================
-    function getQueryParams() {
-      const params = new URLSearchParams(window.location.search);
-      return {
-        gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
-        gc_redirectUrl: params.get('gc_redirectUrl'),
-        gcUsePopupAuth: params.get('gcUsePopupAuth'),
-        debug: params.get('debug'),
-        gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv'),
-        gcLangTag: params.get('gcLangTag')
-      };
-    }
-
-    function initialiseAndStorePluginConfiguration() {
-      const params = getQueryParams();
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== null) sessionStorage.setItem(key, value);
-      });
-    }
-
-    function getStoredConfig() {
-      return {
-        gc_clientId: sessionStorage.getItem('gc_clientId'),
-        gc_region: sessionStorage.getItem('gc_region'),
-        gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
-        gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
-        debug: sessionStorage.getItem('debug'),
-        gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
-        gcTargetEnv: sessionStorage.getItem('gcTargetEnv'),
-        gcLangTag: sessionStorage.getItem('gcLangTag')
-      };
-    }
-
-    function isFirstAgent(participants, currentUserId) {
-      const connectedAgents = participants
-        .filter(p => p.purpose === 'agent' && p.state === 'connected')
-        .sort((a,b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-      return connectedAgents.length > 0 && connectedAgents[0].user?.id === currentUserId;
-    }
-
-    // ==================== Calls Handling ====================
-    async function checkExistingActiveCalls(user, checkCounter = 0) {
-      if (checkCounter > existingCallMaxChecks) {
-        openCrmTab(getHomesUrl());
-        return updateStatus('No active calls → default HOMES loaded.');
-      }
-      try {
-        const activeCalls = await conversationsApi.getConversationsCalls();
-        if (!activeCalls?.entities?.length) {
-          await new Promise(r => setTimeout(r, existingCallCheckInterval));
-          return checkExistingActiveCalls(user, checkCounter + 1);
-        }
-        for (const call of activeCalls.entities) {
-          const participants = call.participants || [];
-          const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-          if (!agentParticipant) continue;
-          const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
-          if (!popUrl || agentParticipant.state !== 'connected') continue;
-          if (isFirstAgent(participants, user.id)) {
-            const url = new URL(popUrl);
-            url.searchParams.set('p2', user.email);
-            openCrmTab(url.toString());
-            return;
-          }
-        }
-      } catch (err) { console.error('[HOMES] Existing call error', err); }
-    }
-
-    async function init() {
-      try {
-        if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) throw new Error('Missing config.');
-        client.setEnvironment(config.gc_region);
-        client.setPersistSettings(true, 'homesPopupController');
-
-        updateStatus('Authenticating...');
-        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-        updateStatus('Authentication successful.');
-
-        const user = await usersApi.getUsersMe();
-        updateStatus(`Logged in as: ${user.name}`);
-        if (blockedAgentIds.includes(user.id)) return updateStatus(`Agent ${user.name} is blocked.`);
-
-        // Preload HOMES tab immediately
-        openCrmTab(getHomesUrl());
-
-        // Set up WebSocket for call events
-        const channel = await notificationsApi.postNotificationsChannels();
-        const topic = `v2.users.${user.id}.conversations.calls`;
-        await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id: topic}]);
-
-        const socket = new WebSocket(channel.connectUri);
-        socket.onopen = () => updateStatus('WebSocket connected.');
-        socket.onmessage = async event => {
-          try {
-            const data = JSON.parse(event.data);
-            const interaction = data.eventBody;
-            const participants = interaction.participants || [];
-            const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-            if (!agentParticipant) return;
-
-            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
-            const conversationId = interaction.id;
-
-            if (agentParticipant.state === 'connected' && isFirstAgent(participants, user.id)) {
-              const url = popUrl ? new URL(popUrl) : new URL(getHomesUrl(conversationId));
-              url.searchParams.set('p2', user.email);
-              openCrmTab(url.toString());
-            }
-
-            if ((agentParticipant.state === 'disconnected' || agentParticipant.state === 'terminated') &&
-                agentParticipant.wrapup?.state === 'done') {
-              closeCrmTab();
-            }
-          } catch (err) { console.error('[HOMES] WebSocket error:', err); }
-        };
-
-        checkExistingActiveCalls(user);
-      } catch (err) {
-        updateStatus(`Error: ${err.message}`);
-        console.error(err);
-      }
-    }
-
-    // ==================== Client App Lifecycle ====================
-    initialiseAndStorePluginConfiguration();
-    config = getStoredConfig();
-
-    const ClientApp = window.purecloud.apps.ClientApp;
-    const myClientApp = new ClientApp({gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv});
-
-    myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus('ClientApp bootstrapped.');
-      init();
-      myClientApp.lifecycle.bootstrapped();
-    });
-
-    myClientApp.lifecycle.addStopListener(() => {
-      updateStatus('ClientApp stopping...');
-      closeCrmTab();
-      myClientApp.lifecycle.stopped();
-    });
-
+    // ==================== Example: load dynamic content ====================
+    // Here you can fetch additional UI data from your own backend
+    // using fetch() to your server, NOT directly cross-origin Genesys Cloud endpoints.
+    // Example:
+    /*
+    fetch(`/api/homes?conversationId=${conversationId}`)
+      .then(res => res.json())
+      .then(data => { console.log(data); })
+      .catch(err => console.error(err));
+    */
   </script>
 </body>
 </html>
