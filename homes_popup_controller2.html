@@ -1,37 +1,32 @@
 <script>
-const VERSION = '2.0.0';
+const VERSION = '1.0.3';
 
-// ================= CONFIG =================
-const existingCallCheckInterval = 2500;
-const existingCallMaxChecks = 20;
-const SOCKET_RETRY_DELAY = 5000;
+document.getElementById('statusBox').innerHTML =
+  `<p><strong>Status:</strong> HOMES Popup Controller v${VERSION}</p>`;
 
-// ================= STATE =================
-let config = null;
-let crmTab = null;
-let currentConversationId = null;
-let socket = null;
-let channelId = null;
-
-// ================= SDK LOAD =================
-function getPlatformClient() {
-  if (window.platformClientV2) return window.platformClientV2;
-  throw new Error('Genesys SDK not loaded');
+// ✅ ADD THIS
+function waitForPlatformClient() {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (window.platformClientV2 && window.platformClientV2.ApiClient) {
+        resolve(window.platformClientV2);
+      } else {
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  });
 }
 
-// ================= UI =================
+let crmTab = null;
+
 function updateStatus(message) {
-  const box = document.getElementById('statusBox');
+  const statusBox = document.getElementById('statusBox');
   const p = document.createElement('p');
   p.textContent = message;
-  box.appendChild(p);
+  statusBox.appendChild(p);
 }
 
-function log(...args) {
-  console.log('[HOMES]', ...args);
-}
-
-// ================= CONFIG =================
 function getQueryParams() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -58,131 +53,16 @@ function initConfig() {
   };
 }
 
-// ================= POPUP CONTROL =================
-function ensureCrmTab() {
-  if (!crmTab || crmTab.closed) {
-    crmTab = window.open('about:blank', '_blank');
-    log('Opened new CRM tab');
-  }
-}
-
-function openCrm(url) {
-  ensureCrmTab();
-  crmTab.location.href = url;
-}
-
-function closeCrm() {
-  if (crmTab && !crmTab.closed) {
-    crmTab.close();
-    crmTab = null;
-    log('CRM tab closed');
-  }
-}
-
-// ================= CALL HANDLER =================
-function handleInteraction(interaction, user) {
-  const participants = interaction.participants || [];
-
-  const agent = participants.find(p =>
-    p.purpose === 'agent' && p.user?.id === user.id
-  );
-
-  if (!agent) return;
-
-  const popUrl = participants
-    .map(p => p.attributes?.UD_ScreenPop_URL)
-    .find(Boolean);
-
-  if (!popUrl) return;
-
-  // Connected
-  if (agent.state === 'connected') {
-    const connectedAgents = participants
-      .filter(p => p.purpose === 'agent' && p.state === 'connected')
-      .sort((a,b)=> new Date(a.connectedTime) - new Date(b.connectedTime));
-
-    const isFirst = connectedAgents[0]?.user?.id === user.id;
-
-    if (!isFirst) return;
-
-    // prevent duplicate popup for same conversation
-    if (currentConversationId === interaction.id) {
-      log('Duplicate event ignored');
-      return;
-    }
-
-    currentConversationId = interaction.id;
-
-    const url = new URL(popUrl);
-    url.searchParams.set('p2', user.email);
-
-    updateStatus(`Opening CRM: ${url}`);
-    openCrm(url.toString());
-  }
-
-  // Disconnect
-  if (['disconnected','terminated'].includes(agent.state)) {
-    if (agent.wrapup) {
-      updateStatus('Closing CRM after wrap-up');
-      closeCrm();
-      currentConversationId = null;
-    }
-  }
-}
-
-// ================= SOCKET =================
-function startWebSocket(channel, user, notificationsApi) {
-  socket = new WebSocket(channel.connectUri);
-
-  socket.onopen = () => updateStatus('WebSocket connected');
-
-  socket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (!data.eventBody) return;
-      handleInteraction(data.eventBody, user);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  socket.onclose = () => {
-    updateStatus('WebSocket closed. Retrying...');
-    setTimeout(()=> reconnect(user, notificationsApi), SOCKET_RETRY_DELAY);
-  };
-
-  socket.onerror = (e) => {
-    console.error('WebSocket error', e);
-  };
-}
-
-// ================= RECONNECT =================
-async function reconnect(user, notificationsApi) {
-  try {
-    updateStatus('Reconnecting...');
-    const channel = await notificationsApi.postNotificationsChannels();
-
-    await notificationsApi.putNotificationsChannelSubscriptions(
-      channel.id,
-      [{ id: `v2.users.${user.id}.conversations.calls` }]
-    );
-
-    startWebSocket(channel, user, notificationsApi);
-  } catch (e) {
-    console.error('Reconnect failed', e);
-  }
-}
-
-// ================= INIT =================
 async function init() {
   try {
-    const platformClient = getPlatformClient();
-    const client = platformClient.ApiClient.instance;
+    // ✅ FIX: wait for SDK
+    const platformClient = await waitForPlatformClient();
 
+    const client = platformClient.ApiClient.instance;
     const notificationsApi = new platformClient.NotificationsApi();
     const usersApi = new platformClient.UsersApi();
 
-    config = initConfig();
+    const config = initConfig();
 
     client.setEnvironment(config.gc_region);
 
@@ -199,17 +79,75 @@ async function init() {
       [{ id: `v2.users.${user.id}.conversations.calls` }]
     );
 
-    startWebSocket(channel, user, notificationsApi);
+    const socket = new WebSocket(channel.connectUri);
 
-  } catch (e) {
-    console.error(e);
-    updateStatus(`Init error: ${e.message}`);
+    socket.onopen = () => updateStatus('WebSocket connected');
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!data.eventBody) return;
+
+        const interaction = data.eventBody;
+        const participants = interaction.participants || [];
+
+        const agent = participants.find(p =>
+          p.purpose === 'agent' && p.user?.id === user.id
+        );
+
+        if (!agent) return;
+
+        const popUrl = participants
+          .map(p => p.attributes?.UD_ScreenPop_URL)
+          .find(Boolean);
+
+        if (!popUrl) return;
+
+        if (agent.state === 'connected') {
+          const connectedAgents = participants
+            .filter(p => p.purpose === 'agent' && p.state === 'connected')
+            .sort((a,b)=> new Date(a.connectedTime) - new Date(b.connectedTime));
+
+          const isFirst = connectedAgents[0]?.user?.id === user.id;
+
+          if (isFirst) {
+            const url = new URL(popUrl);
+            url.searchParams.set('p2', user.email);
+
+            updateStatus(`Opening HOMES tab: ${url}`);
+
+            if (!crmTab || crmTab.closed) {
+              crmTab = window.open('about:blank', '_blank');
+            }
+
+            crmTab.location.href = url.toString();
+          }
+        }
+
+        if (['disconnected','terminated'].includes(agent.state)) {
+          if (agent.wrapup && crmTab && !crmTab.closed) {
+            updateStatus('Closing HOMES tab after wrap-up.');
+            crmTab.close();
+            crmTab = null;
+          }
+        }
+
+      } catch (err) {
+        console.error(err);
+        updateStatus('Error processing event');
+      }
+    };
+
+  } catch (err) {
+    console.error(err);
+    updateStatus(`Initialization error: ${err.message}`);
   }
 }
 
 // ================= CLIENT APP =================
+const config = initConfig();
+
 const ClientApp = window.purecloud.apps.ClientApp;
-config = initConfig();
 
 const app = new ClientApp({
   gcHostOrigin: config.gcHostOrigin,
@@ -217,21 +155,20 @@ const app = new ClientApp({
 });
 
 app.lifecycle.addBootstrapListener(() => {
-  updateStatus('App bootstrapped');
+  updateStatus('Application bootstrapped.');
 
-  // IMPORTANT: popup allowed here
+  // important for popup blockers
   crmTab = window.open('about:blank', '_blank');
 
   app.lifecycle.bootstrapped();
 });
 
 app.lifecycle.addStopListener(() => {
-  updateStatus('App stopped');
-  closeCrm();
-  if (socket) socket.close();
+  updateStatus('Application stopped.');
+  if (crmTab && !crmTab.closed) crmTab.close();
   app.lifecycle.stopped();
 });
 
-// ================= START =================
+// START
 init();
 </script>
