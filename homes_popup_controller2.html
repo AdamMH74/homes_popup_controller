@@ -237,7 +237,7 @@ myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped.');
 
   /* ✅ FIX: Pre-open tab ONLY here */
-  crmTab = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  crmTab = window.open('about:blank', '_blank');
 
   if (crmTab) {
     updateStatus('CRM tab opened for reuse.');
