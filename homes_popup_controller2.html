@@ -4,21 +4,51 @@
   <meta charset="UTF-8">
   <title>HOMES UI</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
-    h1 { font-size: 18px; color: #007bff; }
-    .info { background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
-    .label { font-weight: bold; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 15px; background-color: #f9f9f9; }
+    h1 { color: #007bff; margin-bottom: 10px; }
+    .section { background-color: #fff; padding: 15px; border-radius: 6px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .section h2 { font-size: 16px; margin-top: 0; }
+    .info-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .info-row:last-child { border-bottom: none; }
+    .label { font-weight: bold; color: #555; }
+    button { padding: 6px 12px; margin-right: 10px; border-radius: 4px; border: none; cursor: pointer; color: #fff; }
+    .btn-hold { background-color: #ffc107; }
+    .btn-transfer { background-color: #17a2b8; }
+    .btn-end { background-color: #dc3545; }
+    .crm-links a { display: inline-block; margin-right: 10px; color: #007bff; text-decoration: none; }
+    .crm-links a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <h1>HOMES Page</h1>
-  <div class="info">
-    <p><span class="label">Conversation ID:</span> <span id="conversationId">N/A</span></p>
-    <p><span class="label">Agent Email:</span> <span id="agentEmail">N/A</span></p>
-    <p><span class="label">Language:</span> <span id="language">N/A</span></p>
-    <p><span class="label">Host Origin:</span> <span id="hostOrigin">N/A</span></p>
-    <p><span class="label">Target Env:</span> <span id="targetEnv">N/A</span></p>
-    <p><span class="label">Debug:</span> <span id="debug">N/A</span></p>
+
+  <h1>HOMES Dashboard</h1>
+
+  <!-- Customer Info Section -->
+  <div class="section" id="customerInfo">
+    <h2>Customer Info</h2>
+    <div class="info-row"><span class="label">Conversation ID:</span> <span id="conversationId">N/A</span></div>
+    <div class="info-row"><span class="label">Agent Email:</span> <span id="agentEmail">N/A</span></div>
+    <div class="info-row"><span class="label">Language:</span> <span id="language">N/A</span></div>
+    <div class="info-row"><span class="label">Host Origin:</span> <span id="hostOrigin">N/A</span></div>
+    <div class="info-row"><span class="label">Target Env:</span> <span id="targetEnv">N/A</span></div>
+  </div>
+
+  <!-- Call Actions Section -->
+  <div class="section" id="callActions">
+    <h2>Call Actions</h2>
+    <button class="btn-hold" onclick="alert('Hold action triggered');">Hold</button>
+    <button class="btn-transfer" onclick="alert('Transfer action triggered');">Transfer</button>
+    <button class="btn-end" onclick="alert('End Call action triggered');">End Call</button>
+  </div>
+
+  <!-- CRM Links Section -->
+  <div class="section" id="crmLinks">
+    <h2>CRM Links</h2>
+    <div class="crm-links">
+      <a href="#" target="_blank" id="crmCustomerLink">Customer Profile</a>
+      <a href="#" target="_blank" id="crmCaseLink">Open Case</a>
+      <a href="#" target="_blank" id="crmHistoryLink">Interaction History</a>
+    </div>
   </div>
 
   <script>
@@ -37,18 +67,17 @@
     document.getElementById('language').textContent = language;
     document.getElementById('hostOrigin').textContent = hostOrigin;
     document.getElementById('targetEnv').textContent = targetEnv;
-    document.getElementById('debug').textContent = debug;
 
-    // ==================== Example: load dynamic content ====================
-    // Here you can fetch additional UI data from your own backend
-    // using fetch() to your server, NOT directly cross-origin Genesys Cloud endpoints.
-    // Example:
-    /*
-    fetch(`/api/homes?conversationId=${conversationId}`)
-      .then(res => res.json())
-      .then(data => { console.log(data); })
-      .catch(err => console.error(err));
-    */
+    // ==================== CRM Links (example) ====================
+    const crmBase = 'https://your.crm.system.com';
+    document.getElementById('crmCustomerLink').href = `${crmBase}/customer/${conversationId}`;
+    document.getElementById('crmCaseLink').href = `${crmBase}/case/new?conv=${conversationId}`;
+    document.getElementById('crmHistoryLink').href = `${crmBase}/history/${conversationId}`;
+
+    // ==================== Debug ====================
+    if(debug === 'true') console.log('HOMES iframe params:', {
+      conversationId, agentEmail, language, hostOrigin, targetEnv
+    });
   </script>
 </body>
 </html>
