@@ -152,10 +152,14 @@ async function init() {
     }
 
     client.setEnvironment(config.gc_region);
-    client.setPersistSettings(true, 'homesPopupController');
 
-    updateStatus('Authenticating with Genesys Cloud...');
-    await client.loginImplicitGrant(
+// ✅ THIS LINE IS IMPORTANT
+client.setPersistSettings(true, 'homesPopupController');
+
+updateStatus('Authenticating...');
+
+// ✅ FORCE popup auth properly
+await client.loginImplicitGrant(
   config.gc_clientId,
   config.gc_redirectUrl,
   { usePopup: true }
@@ -282,7 +286,17 @@ myClientApp.lifecycle.addStopListener(() => {
     myClientApp.lifecycle.stopped();
 });
 
-init();
+app.lifecycle.addBootstrapListener(() => {
+  updateStatus('Application bootstrapped.');
+
+  // allow popups
+  crmTab = window.open('about:blank', '_blank');
+
+  // ✅ MOVE INIT HERE
+  init();
+
+  app.lifecycle.bootstrapped();
+});
 </script>
 </body>
 </html>
