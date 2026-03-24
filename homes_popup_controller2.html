@@ -155,7 +155,11 @@ async function init() {
     client.setPersistSettings(true, 'homesPopupController');
 
     updateStatus('Authenticating with Genesys Cloud...');
-    await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+    await client.loginImplicitGrant(
+  config.gc_clientId,
+  config.gc_redirectUrl,
+  { usePopup: true }
+);
     updateStatus('Authentication successful.');
 
     const user = await usersApi.getUsersMe();
