@@ -1,270 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>HOMES Popup Controller - Tabbed Panel</title>
-<script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
-<script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  #statusBox { background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-  #statusBox p { margin: 5px 0; font-size: 14px; }
-
-  /* Tab bar */
-  #tabBar { display: flex; border-bottom: 2px solid #ccc; margin-bottom: 10px; }
-  #tabBar button {
-    padding: 8px 16px;
-    cursor: pointer;
-    border: none;
-    background: #eee;
-    margin-right: 2px;
-  }
-  #tabBar button.active { background: #fff; border-bottom: 2px solid #0073e6; }
-
-  /* Tab panels */
-  #tabPanels > div { display: none; }
-  #tabPanels > div.active { display: block; }
-  iframe { width: 100%; height: 600px; border: 1px solid #ccc; }
-</style>
+  <meta charset="UTF-8">
+  <title>HOMES UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
+    h1 { font-size: 18px; color: #007bff; }
+    .info { background-color: #f5f5f5; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+    .label { font-weight: bold; }
+  </style>
 </head>
 <body>
+  <h1>HOMES Page</h1>
+  <div class="info">
+    <p><span class="label">Conversation ID:</span> <span id="conversationId">N/A</span></p>
+    <p><span class="label">Agent Email:</span> <span id="agentEmail">N/A</span></p>
+    <p><span class="label">Language:</span> <span id="language">N/A</span></p>
+    <p><span class="label">Host Origin:</span> <span id="hostOrigin">N/A</span></p>
+    <p><span class="label">Target Env:</span> <span id="targetEnv">N/A</span></p>
+    <p><span class="label">Debug:</span> <span id="debug">N/A</span></p>
+  </div>
 
-<div id="statusBox">
-  <p><strong>Status:</strong> HOMES Popup Controller v1.0.0</p>
-</div>
+  <script>
+    // ==================== Read URL parameters ====================
+    const params = new URLSearchParams(window.location.search);
+    const conversationId = params.get('gc_conversationId') || 'N/A';
+    const agentEmail = params.get('agentEmail') || 'N/A';
+    const language = params.get('language') || 'en-US';
+    const hostOrigin = params.get('gcHostOrigin') || window.location.origin;
+    const targetEnv = params.get('gcTargetEnv') || 'mypurecloud.com';
+    const debug = params.get('debug') || 'false';
 
-<!-- Tab bar and panels -->
-<div id="tabBar"></div>
-<div id="tabPanels"></div>
+    // ==================== Populate DOM ====================
+    document.getElementById('conversationId').textContent = conversationId;
+    document.getElementById('agentEmail').textContent = agentEmail;
+    document.getElementById('language').textContent = language;
+    document.getElementById('hostOrigin').textContent = hostOrigin;
+    document.getElementById('targetEnv').textContent = targetEnv;
+    document.getElementById('debug').textContent = debug;
 
-<script>
-const VERSION = '1.0.0';
-const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
-const existingCallCheckInterval = 2500;
-const existingCallMaxChecks = 20;
-
-let config = null;
-
-const client = platformClient.ApiClient.instance;
-const notificationsApi = new platformClient.NotificationsApi();
-const conversationsApi = new platformClient.ConversationsApi();
-const usersApi = new platformClient.UsersApi();
-
-const statusBox = document.getElementById('statusBox');
-const tabBar = document.getElementById('tabBar');
-const tabPanels = document.getElementById('tabPanels');
-
-// --------------------- Status ---------------------
-function updateStatus(message) {
-  const p = document.createElement('p');
-  p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-  statusBox.appendChild(p);
-  console.log('[HOMES Popup Controller]', message);
-}
-
-// --------------------- Config ---------------------
-function getQueryParams() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    gc_clientId: params.get('gc_clientId'),
-    gc_region: params.get('gc_region'),
-    gc_redirectUrl: params.get('gc_redirectUrl'),
-    gcUsePopupAuth: params.get('gcUsePopupAuth'),
-    debug: params.get('debug'),
-    gcHostOrigin: params.get('gcHostOrigin'),
-    gcTargetEnv: params.get('gcTargetEnv')
-  };
-}
-
-function initialiseAndStorePluginConfiguration() {
-  const params = getQueryParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== null) sessionStorage.setItem(key, value);
-  }
-  console.log('Stored query parameters:', params);
-}
-
-function getStoredConfig() {
-  return {
-    gc_clientId: sessionStorage.getItem('gc_clientId'),
-    gc_region: sessionStorage.getItem('gc_region'),
-    gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
-    gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
-    debug: sessionStorage.getItem('debug'),
-    gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
-    gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
-  };
-}
-
-// --------------------- Tab management ---------------------
-function openTab(tabId, url, label) {
-  let panel = document.getElementById('panel-' + tabId);
-  if (!panel) {
-    const btn = document.createElement('button');
-    btn.id = 'tab-btn-' + tabId;
-    btn.textContent = label || tabId;
-    btn.onclick = () => showTab(tabId);
-    tabBar.appendChild(btn);
-
-    panel = document.createElement('div');
-    panel.id = 'panel-' + tabId;
-    panel.innerHTML = `<iframe src="${url}"></iframe>`;
-    tabPanels.appendChild(panel);
-  } else {
-    const iframe = panel.querySelector('iframe');
-    iframe.src = url;
-  }
-  showTab(tabId);
-}
-
-function showTab(tabId) {
-  Array.from(tabPanels.children).forEach(panel => panel.classList.remove('active'));
-  Array.from(tabBar.children).forEach(btn => btn.classList.remove('active'));
-  const panel = document.getElementById('panel-' + tabId);
-  const btn = document.getElementById('tab-btn-' + tabId);
-  if (panel && btn) {
-    panel.classList.add('active');
-    btn.classList.add('active');
-  }
-}
-
-function closeTab(tabId) {
-  const panel = document.getElementById('panel-' + tabId);
-  const btn = document.getElementById('tab-btn-' + tabId);
-  if (panel) panel.remove();
-  if (btn) btn.remove();
-  if (tabPanels.children.length > 0) {
-    const firstTabId = tabPanels.children[0].id.replace('panel-', '');
-    showTab(firstTabId);
-  }
-}
-
-// --------------------- Active Calls ---------------------
-async function checkExistingActiveCalls(user, checkCounter = 0) {
-  if (checkCounter > existingCallMaxChecks) return;
-
-  const activeCalls = await conversationsApi.getConversationsCalls();
-  if (!activeCalls || activeCalls.total === 0) {
-    await new Promise(r => setTimeout(r, existingCallCheckInterval));
-    return checkExistingActiveCalls(user, checkCounter + 1);
-  }
-
-  for (const call of activeCalls.entities || []) {
-    const participants = call.participants || [];
-    const agent = participants.find(p => p.purpose === 'agent' && p?.user?.id === user.id);
-    const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-    if (!popUrl) continue;
-
-    const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-    connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-    const isFirstAgent = connectedAgents[0]?.user?.id === user.id;
-
-    if (isFirstAgent) {
-      const url = new URL(popUrl);
-      url.searchParams.set('p2', user.email);
-      updateStatus(`Opening HOMES tab from existing call: ${url}`);
-      openTab('homes', url.toString(), 'HOMES');
-    }
-  }
-}
-
-// --------------------- Initialization ---------------------
-async function init() {
-  try {
-    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl)
-      throw new Error('Missing required configuration parameters.');
-
-    client.setEnvironment(config.gc_region);
-    client.setPersistSettings(true, 'homesPopupController');
-
-    updateStatus('Authenticating with Genesys Cloud...');
-    await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-    updateStatus('Authentication successful.');
-
-    const user = await usersApi.getUsersMe();
-    updateStatus(`Logged in as: ${user.name}`);
-    if (blockedAgentIds.includes(user.id)) {
-      updateStatus(`Agent ${user.name} is blocked.`);
-      return;
-    }
-
-    const channel = await notificationsApi.postNotificationsChannels();
-    updateStatus('Notification channel created.');
-
-    const topic = `v2.users.${user.id}.conversations.calls`;
-    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-    updateStatus(`Subscribed to topic: ${topic}`);
-
-    const socket = new WebSocket(channel.connectUri);
-    socket.onopen = () => updateStatus('WebSocket connected.');
-    socket.onerror = () => updateStatus('WebSocket error.');
-    socket.onclose = () => updateStatus('WebSocket closed.');
-
-    socket.onmessage = async event => {
-      try {
-        const data = JSON.parse(event.data);
-        const interaction = data.eventBody;
-        if (!interaction) return;
-
-        const participants = interaction.participants || [];
-        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-        if (!agent) return;
-
-        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-        if (agent.state === 'connected' && popUrl) {
-          const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-          connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-          const isFirstAgent = connectedAgents[0]?.user?.id === user.id;
-          if (isFirstAgent) {
-            const url = new URL(popUrl);
-            url.searchParams.set('p2', user.email);
-            openTab('homes', url.toString(), 'HOMES');
-          }
-        }
-
-        if (agent.state === 'disconnected' || agent.state === 'terminated') {
-          closeTab('homes');
-        }
-
-      } catch (err) {
-        updateStatus('Error processing WebSocket message.');
-        console.error(err);
-      }
-    };
-
-    checkExistingActiveCalls(user);
-
-  } catch (err) {
-    updateStatus(`Initialization error: ${err.message}`);
-    console.error(err);
-  }
-}
-
-// --------------------- Bootstrap ---------------------
-initialiseAndStorePluginConfiguration();
-config = getStoredConfig();
-
-const ClientApp = window.purecloud.apps.ClientApp;
-const myClientApp = new ClientApp({
-  gcHostOrigin: config.gcHostOrigin,
-  gcTargetEnv: config.gcTargetEnv
-});
-
-myClientApp.lifecycle.addBootstrapListener(() => {
-  updateStatus('Application bootstrapped.');
-  openTab('homes', 'about:blank', 'HOMES'); // placeholder tab
-  init();
-  myClientApp.lifecycle.bootstrapped();
-});
-
-myClientApp.lifecycle.addStopListener(() => {
-  updateStatus('Application stopped.');
-  closeTab('homes');
-  myClientApp.lifecycle.stopped();
-});
-</script>
-
+    // ==================== Example: load dynamic content ====================
+    // Here you can fetch additional UI data from your own backend
+    // using fetch() to your server, NOT directly cross-origin Genesys Cloud endpoints.
+    // Example:
+    /*
+    fetch(`/api/homes?conversationId=${conversationId}`)
+      .then(res => res.json())
+      .then(data => { console.log(data); })
+      .catch(err => console.error(err));
+    */
+  </script>
 </body>
 </html>
