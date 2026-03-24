@@ -261,15 +261,6 @@ var myClientApp = new ClientApp({
     gcTargetEnv: config.gcTargetEnv
 });
 
-myClientApp.lifecycle.addBootstrapListener(() => {
-    updateStatus('Application bootstrapped.');
-
-    // Open the CRM tab synchronously — Chrome will allow this
-    crmTab = window.open('about:blank', '_blank');
-
-    myClientApp.lifecycle.bootstrapped();
-});
-
 myClientApp.lifecycle.addStopListener(() => {
     updateStatus('Application stopped.');
     if (crmTab && !crmTab.closed) {
@@ -279,17 +270,17 @@ myClientApp.lifecycle.addStopListener(() => {
     myClientApp.lifecycle.stopped();
 });
 
-app.lifecycle.addBootstrapListener(() => {
-  updateStatus('Application bootstrapped.');
+myClientApp.lifecycle.addBootstrapListener(() => {
+    updateStatus('Application bootstrapped.');
 
-  // allow popups
-  crmTab = window.open('about:blank', '_blank');
+    // Open tab synchronously (avoids popup blockers)
+    crmTab = window.open('about:blank', '_blank');
     updateStatus('CRM tab opened for future use.');
 
-  // ✅ MOVE INIT HERE
-  init();
+    // Start your app logic
+    init();
 
-  app.lifecycle.bootstrapped();
+    myClientApp.lifecycle.bootstrapped();
 });
     
   </script>
