@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>HOMES Popup Controller with MSAL</title>
+<title>HOMES Popup Controller with MSAL Fixed</title>
 
 <!-- Genesys SDKs -->
 <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
 <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
 
-<!-- MSAL.js -->
+<!-- MSAL.js loaded first to guarantee global `msal` exists -->
 <script src="https://alcdn.msauth.net/browser/2.43.1/js/msal-browser.min.js"></script>
 
 <style>
@@ -26,142 +26,146 @@ button { padding:10px 20px; font-size:14px; cursor:pointer; }
 <button id="loginBtn">Login & Open HOMES</button>
 
 <script>
-const VERSION = '2.1.0';
-let crmTab = null;
-const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e']; // Example
+window.onload = function() {
 
-function updateStatus(msg){
-    const box = document.getElementById('statusBox');
-    const p = document.createElement('p'); p.textContent = msg; box.appendChild(p);
-    console.log('[HOMES]', msg);
-}
+  const VERSION = '2.2.0';
+  let crmTab = null;
+  const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e']; // Example
 
-// --- MSAL Setup ---
-const msalConfig = {
-    auth: { 
-        clientId: "YOUR_MICROSOFT_APP_CLIENT_ID", 
-        redirectUri: window.location.origin + "/callback.html"
-    },
-    cache: { cacheLocation: "sessionStorage" }
+  function updateStatus(msg){
+      const box = document.getElementById('statusBox');
+      const p = document.createElement('p'); p.textContent = msg; box.appendChild(p);
+      console.log('[HOMES]', msg);
+  }
+
+  // --- MSAL Setup ---
+  const msalConfig = {
+      auth: { 
+          clientId: "YOUR_MICROSOFT_APP_CLIENT_ID", 
+          redirectUri: window.location.origin + "/callback.html"
+      },
+      cache: { cacheLocation: "sessionStorage" }
+  };
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+  async function loginMicrosoft(){
+      try {
+          const loginResp = await msalInstance.loginPopup({ scopes: ["User.Read"] });
+          msalInstance.setActiveAccount(loginResp.account);
+          updateStatus(`Microsoft login successful: ${loginResp.account.username}`);
+          return loginResp.account;
+      } catch(err){
+          console.error('Microsoft login failed', err);
+          updateStatus('Microsoft login failed. Check console.');
+          return null;
+      }
+  }
+
+  async function getAccessToken(){
+      try {
+          const tokenResp = await msalInstance.acquireTokenSilent({ scopes: ["User.Read"] });
+          return tokenResp.accessToken;
+      } catch(err){
+          if(err instanceof msal.InteractionRequiredAuthError){
+              const tokenResp = await msalInstance.acquireTokenPopup({ scopes: ["User.Read"] });
+              return tokenResp.accessToken;
+          }
+          console.error('Token acquisition failed', err);
+          return null;
+      }
+  }
+
+  // --- Genesys Setup ---
+  const platformClient = window.platformClient;
+  const client = platformClient.ApiClient.instance;
+  const notificationsApi = new platformClient.NotificationsApi();
+  const conversationsApi = new platformClient.ConversationsApi();
+  const usersApi = new platformClient.UsersApi();
+
+  function getQueryParams(){
+      const params = new URLSearchParams(window.location.search);
+      return {
+          gc_clientId: params.get('gc_clientId'),
+          gc_region: params.get('gc_region'),
+          gc_redirectUrl: params.get('gc_redirectUrl'),
+          gcHostOrigin: params.get('gcHostOrigin'),
+          gcTargetEnv: params.get('gcTargetEnv')
+      };
+  }
+  const config = getQueryParams();
+
+  // --- Genesys WebSocket & CRM tab ---
+  async function initGenesys(user){
+      client.setEnvironment(config.gc_region);
+      client.setPersistSettings(true, 'homesPopupController');
+      updateStatus('Genesys initialized.');
+
+      const channel = await notificationsApi.postNotificationsChannels();
+      const topic = `v2.users.${user.id}.conversations.calls`;
+      await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id:topic}]);
+      updateStatus(`Subscribed to topic: ${topic}`);
+
+      const socket = new WebSocket(channel.connectUri);
+      socket.onopen = () => updateStatus('WebSocket connected.');
+      socket.onerror = e => updateStatus('WebSocket error: ' + e.message);
+      socket.onclose = () => updateStatus('WebSocket closed.');
+
+      socket.onmessage = async (evt) => {
+          try {
+              const data = JSON.parse(evt.data);
+              if(!data.eventBody) return;
+              const interaction = data.eventBody;
+              const participants = interaction.participants || [];
+              const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
+              if(!agent) return;
+
+              const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
+
+              if(agent.state==='connected' && popUrl && !crmTab){
+                  const connectedAgents = participants.filter(p=>p.purpose==='agent' && p.state==='connected');
+                  connectedAgents.sort((a,b)=>new Date(a.connectedTime)-new Date(b.connectedTime));
+                  if(connectedAgents[0].user?.id===agent.user?.id){
+                      const token = await getAccessToken();
+                      const url = new URL(popUrl);
+                      url.searchParams.set('p2', encodeURIComponent(agent.user?.email || token));
+                      updateStatus(`Opening HOMES tab: ${url}`);
+                      crmTab = window.open(url.toString(), '_blank');
+                  }
+              }
+
+              if((agent.state==='disconnected'||agent.state==='terminated') && crmTab && !crmTab.closed){
+                  updateStatus('Closing HOMES tab after wrap-up.');
+                  crmTab.close(); crmTab=null;
+              }
+          } catch(err){ 
+              console.error('WebSocket message error:', err);
+              updateStatus('Error processing message.');
+          }
+      };
+  }
+
+  // --- Start button click ---
+  document.getElementById('loginBtn').addEventListener('click', async () => {
+      updateStatus(`HOMES Popup Controller v${VERSION} starting...`);
+      const account = await loginMicrosoft();
+      if(!account) return;
+
+      try{
+          await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+          const user = await usersApi.getUsersMe();
+          updateStatus(`Logged in as Genesys agent: ${user.name}`);
+          if(blockedAgentIds.includes(user.id)){
+              updateStatus(`Agent ${user.name} is blocked.`);
+              return;
+          }
+          await initGenesys(user);
+      }catch(err){
+          console.error('Genesys initialization failed:', err);
+          updateStatus('Genesys initialization failed. See console.');
+      }
+  });
+
 };
-const msalInstance = new msal.PublicClientApplication(msalConfig);
-
-async function loginMicrosoft(){
-    try {
-        const loginResp = await msalInstance.loginPopup({ scopes: ["User.Read"] });
-        msalInstance.setActiveAccount(loginResp.account);
-        updateStatus(`Microsoft login successful: ${loginResp.account.username}`);
-        return loginResp.account;
-    } catch(err){
-        console.error('Microsoft login failed', err);
-        updateStatus('Microsoft login failed. Check console.');
-        return null;
-    }
-}
-
-async function getAccessToken(){
-    try {
-        const tokenResp = await msalInstance.acquireTokenSilent({ scopes: ["User.Read"] });
-        return tokenResp.accessToken;
-    } catch(err){
-        if(err instanceof msal.InteractionRequiredAuthError){
-            const tokenResp = await msalInstance.acquireTokenPopup({ scopes: ["User.Read"] });
-            return tokenResp.accessToken;
-        }
-        console.error('Token acquisition failed', err);
-        return null;
-    }
-}
-
-// --- Genesys Setup ---
-const platformClient = window.platformClient;
-const client = platformClient.ApiClient.instance;
-const notificationsApi = new platformClient.NotificationsApi();
-const conversationsApi = new platformClient.ConversationsApi();
-const usersApi = new platformClient.UsersApi();
-
-function getQueryParams(){
-    const params = new URLSearchParams(window.location.search);
-    return {
-        gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
-        gc_redirectUrl: params.get('gc_redirectUrl'),
-        gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv')
-    };
-}
-const config = getQueryParams();
-
-// --- Genesys WebSocket & CRM tab ---
-async function initGenesys(user){
-    client.setEnvironment(config.gc_region);
-    client.setPersistSettings(true, 'homesPopupController');
-    updateStatus('Genesys initialized.');
-
-    const channel = await notificationsApi.postNotificationsChannels();
-    const topic = `v2.users.${user.id}.conversations.calls`;
-    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id:topic}]);
-    updateStatus(`Subscribed to topic: ${topic}`);
-
-    const socket = new WebSocket(channel.connectUri);
-    socket.onopen = () => updateStatus('WebSocket connected.');
-    socket.onerror = e => updateStatus('WebSocket error: ' + e.message);
-    socket.onclose = () => updateStatus('WebSocket closed.');
-
-    socket.onmessage = async (evt) => {
-        try {
-            const data = JSON.parse(evt.data);
-            if(!data.eventBody) return;
-            const interaction = data.eventBody;
-            const participants = interaction.participants || [];
-            const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
-            if(!agent) return;
-
-            const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
-
-            if(agent.state==='connected' && popUrl && !crmTab){
-                const connectedAgents = participants.filter(p=>p.purpose==='agent' && p.state==='connected');
-                connectedAgents.sort((a,b)=>new Date(a.connectedTime)-new Date(b.connectedTime));
-                if(connectedAgents[0].user?.id===agent.user?.id){
-                    const token = await getAccessToken();
-                    const url = new URL(popUrl);
-                    url.searchParams.set('p2', encodeURIComponent(agent.user?.email || token));
-                    updateStatus(`Opening HOMES tab: ${url}`);
-                    crmTab = window.open(url.toString(), '_blank');
-                }
-            }
-
-            if((agent.state==='disconnected'||agent.state==='terminated') && crmTab && !crmTab.closed){
-                updateStatus('Closing HOMES tab after wrap-up.');
-                crmTab.close(); crmTab=null;
-            }
-        } catch(err){ 
-            console.error('WebSocket message error:', err);
-            updateStatus('Error processing message.');
-        }
-    };
-}
-
-// --- Start button click ---
-document.getElementById('loginBtn').addEventListener('click', async () => {
-    updateStatus(`HOMES Popup Controller v${VERSION} starting...`);
-    const account = await loginMicrosoft();
-    if(!account) return;
-
-    try{
-        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-        const user = await usersApi.getUsersMe();
-        updateStatus(`Logged in as Genesys agent: ${user.name}`);
-        if(blockedAgentIds.includes(user.id)){
-            updateStatus(`Agent ${user.name} is blocked.`);
-            return;
-        }
-        await initGenesys(user);
-    }catch(err){
-        console.error('Genesys initialization failed:', err);
-        updateStatus('Genesys initialization failed. See console.');
-    }
-});
 </script>
 
 </body>
