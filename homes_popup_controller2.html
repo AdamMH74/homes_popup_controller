@@ -288,7 +288,7 @@
 
       // Pre-open tab early
       if (!crmTab || crmTab.closed) {
-        crmTab = window.open('about:blank', '_blank');
+        crmTab = window.open('about:blank', '_blank', 'noopener,noreferrer');
         setCrmTab(crmTab);
         updateStatus('Pre-opened CRM tab (ready).');
       }
