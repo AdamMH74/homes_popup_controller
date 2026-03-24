@@ -1,79 +1,56 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>HOMES Popup Controller</title>
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
-  <style>
-    .info-container {
-      background-color: #f5f5f5;
-      padding: 20px;
-      border-radius: 5px;
-      margin-bottom: 20px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-    }
-    .info-container p {
-      margin: 5px 0;
-    }
+<meta charset="UTF-8">
+<title>HOMES Popup Controller - Tabbed Panel</title>
+<script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
+<script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  #statusBox { background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+  #statusBox p { margin: 5px 0; font-size: 14px; }
 
-    /* Tab bar */
-    .tab-bar {
-      display: flex;
-      border-bottom: 1px solid #ccc;
-      margin-bottom: 10px;
-      min-height: 36px;
-    }
-    .tab-bar button {
-      background: #f5f5f5;
-      border: none;
-      padding: 8px 16px;
-      cursor: pointer;
-    }
-    .tab-bar button.active {
-      background: #fff;
-      border-bottom: 2px solid #0073e6;
-    }
+  /* Tab bar */
+  #tabBar { display: flex; border-bottom: 2px solid #ccc; margin-bottom: 10px; }
+  #tabBar button {
+    padding: 8px 16px;
+    cursor: pointer;
+    border: none;
+    background: #eee;
+    margin-right: 2px;
+  }
+  #tabBar button.active { background: #fff; border-bottom: 2px solid #0073e6; }
 
-    /* Tab panels */
-    .tab-panels > div {
-      display: none;
-    }
-    .tab-panels > div.active {
-      display: block;
-    }
-    .tab-panels iframe {
-      width: 100%;
-      height: 600px;
-      border: none;
-    }
-  </style>
+  /* Tab panels */
+  #tabPanels > div { display: none; }
+  #tabPanels > div.active { display: block; }
+  iframe { width: 100%; height: 600px; border: 1px solid #ccc; }
+</style>
 </head>
 <body>
-  <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller...</p>
-  </div>
 
-  <!-- Tab bar and panels -->
-  <div class="tab-bar" id="tabBar"></div>
-  <div class="tab-panels" id="tabPanels"></div>
+<div id="statusBox">
+  <p><strong>Status:</strong> HOMES Popup Controller v1.0.0</p>
+</div>
+
+<!-- Tab bar and panels -->
+<div id="tabBar"></div>
+<div id="tabPanels"></div>
 
 <script>
-const VERSION = '1.0.5';
-const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e']; 
+const VERSION = '1.0.0';
+const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 const existingCallCheckInterval = 2500;
 const existingCallMaxChecks = 20;
 
 let config = null;
-
-document.getElementById('statusBox').innerHTML = `<p><strong>Status:</strong> HOMES Popup Controller v${VERSION}</p>`;
 
 const client = platformClient.ApiClient.instance;
 const notificationsApi = new platformClient.NotificationsApi();
 const conversationsApi = new platformClient.ConversationsApi();
 const usersApi = new platformClient.UsersApi();
 
+const statusBox = document.getElementById('statusBox');
 const tabBar = document.getElementById('tabBar');
 const tabPanels = document.getElementById('tabPanels');
 
@@ -81,9 +58,9 @@ const tabPanels = document.getElementById('tabPanels');
 function updateStatus(message) {
   const p = document.createElement('p');
   p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-  document.getElementById('statusBox').appendChild(p);
+  statusBox.appendChild(p);
+  console.log('[HOMES Popup Controller]', message);
 }
-function log(...args) { console.log('[HOMES Popup Controller]', ...args); }
 
 // --------------------- Config ---------------------
 function getQueryParams() {
@@ -104,7 +81,7 @@ function initialiseAndStorePluginConfiguration() {
   for (const [key, value] of Object.entries(params)) {
     if (value !== null) sessionStorage.setItem(key, value);
   }
-  log('Stored query parameters in sessionStorage:', params);
+  console.log('Stored query parameters:', params);
 }
 
 function getStoredConfig() {
@@ -119,66 +96,57 @@ function getStoredConfig() {
   };
 }
 
-// --------------------- Tabs ---------------------
-function openCRMTAB(tabId, url, label) {
-  const existingTab = document.getElementById(`tab-${tabId}`);
-  if (existingTab) {
-    const iframe = existingTab.querySelector('iframe');
-    if (iframe) iframe.src = url; // dynamically update URL
-    showTab(tabId);
-    return;
+// --------------------- Tab management ---------------------
+function openTab(tabId, url, label) {
+  let panel = document.getElementById('panel-' + tabId);
+  if (!panel) {
+    const btn = document.createElement('button');
+    btn.id = 'tab-btn-' + tabId;
+    btn.textContent = label || tabId;
+    btn.onclick = () => showTab(tabId);
+    tabBar.appendChild(btn);
+
+    panel = document.createElement('div');
+    panel.id = 'panel-' + tabId;
+    panel.innerHTML = `<iframe src="${url}"></iframe>`;
+    tabPanels.appendChild(panel);
+  } else {
+    const iframe = panel.querySelector('iframe');
+    iframe.src = url;
   }
-
-  const tabButton = document.createElement('button');
-  tabButton.id = `tab-btn-${tabId}`;
-  tabButton.textContent = label || 'CRM';
-  tabButton.onclick = () => showTab(tabId);
-  tabBar.appendChild(tabButton);
-
-  const tabPanel = document.createElement('div');
-  tabPanel.id = `tab-${tabId}`;
-  tabPanel.innerHTML = `<iframe src="${url}"></iframe>`;
-  tabPanels.appendChild(tabPanel);
-
   showTab(tabId);
 }
 
 function showTab(tabId) {
   Array.from(tabPanels.children).forEach(panel => panel.classList.remove('active'));
   Array.from(tabBar.children).forEach(btn => btn.classList.remove('active'));
-
-  const panel = document.getElementById(`tab-${tabId}`);
-  const button = document.getElementById(`tab-btn-${tabId}`);
-  if (panel && button) {
+  const panel = document.getElementById('panel-' + tabId);
+  const btn = document.getElementById('tab-btn-' + tabId);
+  if (panel && btn) {
     panel.classList.add('active');
-    button.classList.add('active');
+    btn.classList.add('active');
   }
 }
 
-function closeCRMTAB(tabId) {
-  const panel = document.getElementById(`tab-${tabId}`);
-  const button = document.getElementById(`tab-btn-${tabId}`);
+function closeTab(tabId) {
+  const panel = document.getElementById('panel-' + tabId);
+  const btn = document.getElementById('tab-btn-' + tabId);
   if (panel) panel.remove();
-  if (button) button.remove();
+  if (btn) btn.remove();
   if (tabPanels.children.length > 0) {
-    const firstTabId = tabPanels.children[0].id.replace('tab-', '');
+    const firstTabId = tabPanels.children[0].id.replace('panel-', '');
     showTab(firstTabId);
   }
 }
 
 // --------------------- Active Calls ---------------------
 async function checkExistingActiveCalls(user, checkCounter = 0) {
-  if (checkCounter > existingCallMaxChecks) {
-    updateStatus('Call control: Maximum checks reached.');
-    return;
-  }
+  if (checkCounter > existingCallMaxChecks) return;
 
   const activeCalls = await conversationsApi.getConversationsCalls();
   if (!activeCalls || activeCalls.total === 0) {
-    updateStatus('Call control: No active calls.');
     await new Promise(r => setTimeout(r, existingCallCheckInterval));
-    await checkExistingActiveCalls(user, checkCounter + 1);
-    return;
+    return checkExistingActiveCalls(user, checkCounter + 1);
   }
 
   for (const call of activeCalls.entities || []) {
@@ -196,7 +164,7 @@ async function checkExistingActiveCalls(user, checkCounter = 0) {
       const url = new URL(popUrl);
       url.searchParams.set('p2', user.email);
       updateStatus(`Opening HOMES tab from existing call: ${url}`);
-      openCRMTAB('homes', url.toString(), 'HOMES');
+      openTab('homes', url.toString(), 'HOMES');
     }
   }
 }
@@ -230,7 +198,7 @@ async function init() {
 
     const socket = new WebSocket(channel.connectUri);
     socket.onopen = () => updateStatus('WebSocket connected.');
-    socket.onerror = err => updateStatus('WebSocket error.');
+    socket.onerror = () => updateStatus('WebSocket error.');
     socket.onclose = () => updateStatus('WebSocket closed.');
 
     socket.onmessage = async event => {
@@ -252,12 +220,12 @@ async function init() {
           if (isFirstAgent) {
             const url = new URL(popUrl);
             url.searchParams.set('p2', user.email);
-            openCRMTAB('homes', url.toString(), 'HOMES');
+            openTab('homes', url.toString(), 'HOMES');
           }
         }
 
         if (agent.state === 'disconnected' || agent.state === 'terminated') {
-          closeCRMTAB('homes');
+          closeTab('homes');
         }
 
       } catch (err) {
@@ -286,19 +254,17 @@ const myClientApp = new ClientApp({
 
 myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped.');
-
-  // Show visible placeholder tab
-  openCRMTAB('homes', 'about:blank', 'HOMES');
-
+  openTab('homes', 'about:blank', 'HOMES'); // placeholder tab
   init();
   myClientApp.lifecycle.bootstrapped();
 });
 
 myClientApp.lifecycle.addStopListener(() => {
   updateStatus('Application stopped.');
-  closeCRMTAB('homes');
+  closeTab('homes');
   myClientApp.lifecycle.stopped();
 });
 </script>
+
 </body>
 </html>
