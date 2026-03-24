@@ -192,6 +192,10 @@ await client.loginImplicitGrant(
     socket.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
+		
+		// Log full raw data for debugging
+    console.log('[HOMES Popup Controller] Notification received:', data);
+    updateStatus(`Notification received: topic=${data.topicName}`);
         if (!data.topicName || !data.eventBody) return;
 
         const interaction = data.eventBody;
