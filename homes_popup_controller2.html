@@ -2,82 +2,91 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>HOMES UI</title>
+  <title>HOMES Popup Controller</title>
+  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
+  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 15px; background-color: #f9f9f9; }
-    h1 { color: #007bff; margin-bottom: 10px; }
-    .section { background-color: #fff; padding: 15px; border-radius: 6px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .section h2 { font-size: 16px; margin-top: 0; }
-    .info-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #eee; }
-    .info-row:last-child { border-bottom: none; }
-    .label { font-weight: bold; color: #555; }
-    button { padding: 6px 12px; margin-right: 10px; border-radius: 4px; border: none; cursor: pointer; color: #fff; }
-    .btn-hold { background-color: #ffc107; }
-    .btn-transfer { background-color: #17a2b8; }
-    .btn-end { background-color: #dc3545; }
-    .crm-links a { display: inline-block; margin-right: 10px; color: #007bff; text-decoration: none; }
-    .crm-links a:hover { text-decoration: underline; }
+    body { font-family: Arial, sans-serif; margin: 10px; }
+    .tab-bar { display: flex; gap: 5px; margin-bottom: 10px; }
+    .tab-bar button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; background: #eee; }
+    .tab-bar button.active { background: #007bff; color: white; }
+    .tab-panel { display: none; background: #f5f5f5; padding: 15px; border-radius: 6px; min-height: 200px; }
+    .tab-panel.active { display: block; }
+    .info-container { font-size: 14px; line-height: 1.5; }
+    button.action { padding: 6px 12px; margin-top: 5px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button.action:hover { background-color: #0056b3; }
   </style>
 </head>
 <body>
 
-  <h1>HOMES Dashboard</h1>
-
-  <!-- Customer Info Section -->
-  <div class="section" id="customerInfo">
-    <h2>Customer Info</h2>
-    <div class="info-row"><span class="label">Conversation ID:</span> <span id="conversationId">N/A</span></div>
-    <div class="info-row"><span class="label">Agent Email:</span> <span id="agentEmail">N/A</span></div>
-    <div class="info-row"><span class="label">Language:</span> <span id="language">N/A</span></div>
-    <div class="info-row"><span class="label">Host Origin:</span> <span id="hostOrigin">N/A</span></div>
-    <div class="info-row"><span class="label">Target Env:</span> <span id="targetEnv">N/A</span></div>
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <button class="tab-button active" data-tab="homesTab">HOMES</button>
+    <button class="tab-button" data-tab="statusTab">Status</button>
   </div>
 
-  <!-- Call Actions Section -->
-  <div class="section" id="callActions">
-    <h2>Call Actions</h2>
-    <button class="btn-hold" onclick="alert('Hold action triggered');">Hold</button>
-    <button class="btn-transfer" onclick="alert('Transfer action triggered');">Transfer</button>
-    <button class="btn-end" onclick="alert('End Call action triggered');">End Call</button>
+  <!-- Tab Panels -->
+  <div id="homesTab" class="tab-panel active">
+    <div class="info-container" id="homesContent">
+      <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.1.1...</p>
+      <!-- Dynamic HOMES content will appear here -->
+    </div>
   </div>
 
-  <!-- CRM Links Section -->
-  <div class="section" id="crmLinks">
-    <h2>CRM Links</h2>
-    <div class="crm-links">
-      <a href="#" target="_blank" id="crmCustomerLink">Customer Profile</a>
-      <a href="#" target="_blank" id="crmCaseLink">Open Case</a>
-      <a href="#" target="_blank" id="crmHistoryLink">Interaction History</a>
+  <div id="statusTab" class="tab-panel">
+    <div class="info-container" id="statusBox">
+      <p><strong>Status Log:</strong></p>
     </div>
   </div>
 
   <script>
-    // ==================== Read URL parameters ====================
-    const params = new URLSearchParams(window.location.search);
-    const conversationId = params.get('gc_conversationId') || 'N/A';
-    const agentEmail = params.get('agentEmail') || 'N/A';
-    const language = params.get('language') || 'en-US';
-    const hostOrigin = params.get('gcHostOrigin') || window.location.origin;
-    const targetEnv = params.get('gcTargetEnv') || 'mypurecloud.com';
-    const debug = params.get('debug') || 'false';
+    const VERSION = '1.1.1';
+    let homesContent = document.getElementById('homesContent');
+    let statusBox = document.getElementById('statusBox');
 
-    // ==================== Populate DOM ====================
-    document.getElementById('conversationId').textContent = conversationId;
-    document.getElementById('agentEmail').textContent = agentEmail;
-    document.getElementById('language').textContent = language;
-    document.getElementById('hostOrigin').textContent = hostOrigin;
-    document.getElementById('targetEnv').textContent = targetEnv;
-
-    // ==================== CRM Links (example) ====================
-    const crmBase = 'https://your.crm.system.com';
-    document.getElementById('crmCustomerLink').href = `${crmBase}/customer/${conversationId}`;
-    document.getElementById('crmCaseLink').href = `${crmBase}/case/new?conv=${conversationId}`;
-    document.getElementById('crmHistoryLink').href = `${crmBase}/history/${conversationId}`;
-
-    // ==================== Debug ====================
-    if(debug === 'true') console.log('HOMES iframe params:', {
-      conversationId, agentEmail, language, hostOrigin, targetEnv
+    // ========== TAB LOGIC ==========
+    document.querySelectorAll('.tab-button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+        document.getElementById(btn.dataset.tab).classList.add('active');
+      });
     });
+
+    // ========== STATUS LOG ==========
+    function updateStatus(message) {
+      const p = document.createElement('p');
+      p.textContent = message;
+      statusBox.appendChild(p);
+      console.log('[HOMES Popup Controller]', message);
+    }
+
+    function updateHomesContent(message) {
+      const p = document.createElement('p');
+      p.textContent = message;
+      homesContent.appendChild(p);
+      console.log('[HOMES Content]', message);
+    }
+
+    // ========== SIMULATE CALL EVENTS ==========
+    // Example: Instead of opening a new tab, just update the HOMES panel
+    function onCallConnected(conversationId, agentEmail) {
+      updateHomesContent(`Call connected for conversation ${conversationId}, agent ${agentEmail}`);
+    }
+
+    function onCallWrapup(conversationId) {
+      updateHomesContent(`Wrap-up completed for conversation ${conversationId}`);
+    }
+
+    // ========== EXAMPLE INITIALIZATION ==========
+    updateStatus('Controller initialized, version ' + VERSION);
+    updateHomesContent('Ready to receive calls...');
+
+    // Example of receiving a call
+    setTimeout(() => onCallConnected('12345', 'agent@example.com'), 2000);
+    setTimeout(() => onCallWrapup('12345'), 8000);
+
   </script>
 </body>
 </html>
