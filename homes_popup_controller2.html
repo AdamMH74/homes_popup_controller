@@ -276,7 +276,7 @@ myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped.');
 
   // allow popups
-  crmTab = window.open('about:blank', '_blank');
+  crmTab = window.open('about:blank', '_blank', 'noopener,noreferrer');
     updateStatus('CRM tab opened for future use.');
 
   // ✅ MOVE INIT HERE
