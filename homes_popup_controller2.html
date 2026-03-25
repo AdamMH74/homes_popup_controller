@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     .info-container {
@@ -57,7 +56,7 @@
 
     const openButton = document.getElementById('openButton');
 
-    // ====================== HOMES OPEN ======================
+    // ====================== HOMES TAB HANDLING ======================
     const openHOMES = () => {
       if (!currentPopUrl) {
         updateStatus('No HOMES URL available yet');
@@ -101,82 +100,63 @@
       gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
     });
 
-    // ====================== WAIT FOR SDK ======================
-    const waitForPlatformClient = () => {
-      return new Promise((resolve, reject) => {
-        let retries = 0, maxRetries = 10;
-        const check = () => {
-          if (window.purecloudPlatformClientV2) return resolve(window.purecloudPlatformClientV2);
-          retries++;
-          if (retries > maxRetries) return reject(new Error('PlatformClient SDK not loaded'));
-          setTimeout(check, 200);
-        };
-        check();
-      });
-    };
+    // ====================== INIT USING CLIENT APP SDK ======================
+    async function init(client) {
+      try {
+        const me = await new client.UsersApi().getUsersMe();
+        userEmail = me.email;
+        updateStatus(`Logged in as: ${me.name}`);
 
-    // ====================== INIT ======================
-    async function init(platformClient) {
-      if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-        throw new Error('Missing required config parameters');
-      }
-
-      const client = platformClient.ApiClient.instance;
-      client.setEnvironment(config.gc_region);
-      client.setPersistSettings(true, 'homesPopupController');
-
-      await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-      updateStatus('Authentication successful');
-
-      const me = await new platformClient.UsersApi().getUsersMe();
-      userEmail = me.email;
-      updateStatus(`Logged in as: ${me.name}`);
-
-      if (blockedAgentIds.includes(me.id)) {
-        updateStatus('This agent is blocked from using the widget');
-        return;
-      }
-
-      // ====================== NOTIFICATIONS ======================
-      const notificationsApi = new platformClient.NotificationsApi();
-      const channel = await notificationsApi.postNotificationsChannels();
-      const topic = `v2.users.${me.id}.conversations.calls`;
-      await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-
-      socket = new WebSocket(channel.connectUri);
-      socket.onopen = () => updateStatus('WebSocket connected');
-      socket.onclose = () => updateStatus('WebSocket closed');
-      socket.onerror = (err) => updateStatus(`WebSocket error: ${err.message || err}`);
-
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (!data.eventBody) return;
-
-          const participants = data.eventBody.participants || [];
-          const agentPart = participants.find(p => p.purpose === 'agent' && p.user?.id === me.id);
-          if (!agentPart) return;
-
-          const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(u => u);
-
-          if (agentPart.state === 'connected' && popUrl) {
-            currentPopUrl = popUrl;
-            openButton.disabled = false;
-            updateStatus('Call connected – Open HOMES button is now available');
-          }
-
-          if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') &&
-              agentPart.wrapup && crmTab && !crmTab.closed) {
-            updateStatus('Closing HOMES tab after wrap-up');
-            crmTab.close();
-            crmTab = null;
-            currentPopUrl = null;
-            openButton.disabled = true;
-          }
-        } catch (e) {
-          console.error(e);
+        if (blockedAgentIds.includes(me.id)) {
+          updateStatus('This agent is blocked from using the widget');
+          return;
         }
-      };
+
+        // Create notification channel
+        const notificationsApi = new client.NotificationsApi();
+        const channel = await notificationsApi.postNotificationsChannels();
+        const topic = `v2.users.${me.id}.conversations.calls`;
+        await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
+
+        socket = new WebSocket(channel.connectUri);
+        socket.onopen = () => updateStatus('WebSocket connected');
+        socket.onclose = () => updateStatus('WebSocket closed');
+        socket.onerror = (err) => updateStatus(`WebSocket error: ${err.message || err}`);
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (!data.eventBody) return;
+
+            const participants = data.eventBody.participants || [];
+            const agentPart = participants.find(p => p.purpose === 'agent' && p.user?.id === me.id);
+            if (!agentPart) return;
+
+            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(u => u);
+
+            if (agentPart.state === 'connected' && popUrl) {
+              currentPopUrl = popUrl;
+              openButton.disabled = false;
+              updateStatus('Call connected – Open HOMES button is now available');
+            }
+
+            if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') &&
+                agentPart.wrapup && crmTab && !crmTab.closed) {
+              updateStatus('Closing HOMES tab after wrap-up');
+              crmTab.close();
+              crmTab = null;
+              currentPopUrl = null;
+              openButton.disabled = true;
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        };
+
+      } catch (err) {
+        updateStatus(`Init error: ${err.message}`);
+        console.error(err);
+      }
     }
 
     // ====================== CLIENT APP LIFECYCLE ======================
@@ -194,8 +174,7 @@
       openPlaceholderTab();
 
       try {
-        const platformClient = await waitForPlatformClient();
-        await init(platformClient);
+        await init(myClientApp.client); // Pass the Client App SDK client here
       } catch (err) {
         updateStatus(`Init error: ${err.message}`);
         console.error(err);
