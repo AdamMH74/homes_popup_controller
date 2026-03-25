@@ -98,7 +98,7 @@
       gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
     });
 
-    async function init(myClientApp) {
+    async function init(client) {
       try {
         await myClientApp.client.onReady().then(async (client) => {
           // Get current user
@@ -170,19 +170,19 @@
       gcTargetEnv: config.gcTargetEnv
     });
 
-    myClientApp.lifecycle.addBootstrapListener(async () => {
-      updateStatus('Application bootstrapped');
-      openPlaceholderTab();
+    myClientApp.lifecycle.addBootstrapListener(() => {
+  updateStatus('Application bootstrapped');
+  openPlaceholderTab();
 
-      try {
-        await init(myClientApp); // fully compatible with popup auth
-      } catch (err) {
-        updateStatus(`Init error: ${err.message}`);
-        console.error(err);
-      }
+  myClientApp.getClient().then(client => {
+    init(client);
+  }).catch(err => {
+    updateStatus(`Init error: ${err.message}`);
+    console.error(err);
+  });
 
-      myClientApp.lifecycle.bootstrapped();
-    });
+  myClientApp.lifecycle.bootstrapped();
+});
 
     myClientApp.lifecycle.addStopListener(() => {
       updateStatus('Application stopped');
