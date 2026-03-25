@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     .info-container {
@@ -104,15 +103,10 @@
     // ====================== INIT USING CLIENT APP SDK ======================
     async function init(myClientApp) {
       try {
-        const platformClient = window.purecloudPlatformClientV2; // SDK constructors
-        const client = myClientApp.client;                        // authenticated ApiClient
-
-        // Create API instances using authenticated client
-        const usersApi = new platformClient.UsersApi(client);
-        const notificationsApi = new platformClient.NotificationsApi(client);
+        const client = myClientApp.client;  // ApiClient instance from Client App SDK
 
         // Get current user
-        const me = await usersApi.getUsersMe();
+        const me = await client.get('/api/v2/users/me');
         userEmail = me.email;
         updateStatus(`Logged in as: ${me.name}`);
 
@@ -122,9 +116,9 @@
         }
 
         // Notification channel
-        const channel = await notificationsApi.postNotificationsChannels();
+        const channel = await client.post('/api/v2/notifications/channels');
         const topic = `v2.users.${me.id}.conversations.calls`;
-        await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
+        await client.put(`/api/v2/notifications/channels/${channel.id}/subscriptions`, [{ id: topic }]);
 
         // WebSocket
         socket = new WebSocket(channel.connectUri);
