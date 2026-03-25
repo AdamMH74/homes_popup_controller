@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
+  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     .info-container {
@@ -101,9 +102,17 @@
     });
 
     // ====================== INIT USING CLIENT APP SDK ======================
-    async function init(client) {
+    async function init(myClientApp) {
       try {
-        const me = await new client.UsersApi().getUsersMe();
+        const platformClient = window.purecloudPlatformClientV2; // SDK constructors
+        const client = myClientApp.client;                        // authenticated ApiClient
+
+        // Create API instances using authenticated client
+        const usersApi = new platformClient.UsersApi(client);
+        const notificationsApi = new platformClient.NotificationsApi(client);
+
+        // Get current user
+        const me = await usersApi.getUsersMe();
         userEmail = me.email;
         updateStatus(`Logged in as: ${me.name}`);
 
@@ -112,12 +121,12 @@
           return;
         }
 
-        // Create notification channel
-        const notificationsApi = new client.NotificationsApi();
+        // Notification channel
         const channel = await notificationsApi.postNotificationsChannels();
         const topic = `v2.users.${me.id}.conversations.calls`;
         await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
 
+        // WebSocket
         socket = new WebSocket(channel.connectUri);
         socket.onopen = () => updateStatus('WebSocket connected');
         socket.onclose = () => updateStatus('WebSocket closed');
@@ -174,7 +183,7 @@
       openPlaceholderTab();
 
       try {
-        await init(myClientApp.client); // Pass the Client App SDK client here
+        await init(myClientApp); // pass full ClientApp instance
       } catch (err) {
         updateStatus(`Init error: ${err.message}`);
         console.error(err);
