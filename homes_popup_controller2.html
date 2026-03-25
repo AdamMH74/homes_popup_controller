@@ -113,8 +113,10 @@
           throw new Error('Missing required config parameters');
         }
 
-        const platformClient = window.platformClient;
-        const client = platformClient.ApiClient.instance;
+        //const platformClient = window.platformClient;
+		const platformClient = window.purecloudPlatformClientV2;
+		const client = platformClient.ApiClient.instance;
+        //const client = platformClient.ApiClient.instance;
         client.setEnvironment(config.gc_region);
         client.setPersistSettings(true, 'homesPopupController');
 
