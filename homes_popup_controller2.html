@@ -174,12 +174,15 @@
   updateStatus('Application bootstrapped');
   openPlaceholderTab();
 
-  myClientApp.getClient().then(client => {
-    init(client);
-  }).catch(err => {
-    updateStatus(`Init error: ${err.message}`);
-    console.error(err);
-  });
+  const waitForClient = () => {
+    if (myClientApp.client) {
+      init(myClientApp.client);
+    } else {
+      setTimeout(waitForClient, 100);
+    }
+  };
+
+  waitForClient();
 
   myClientApp.lifecycle.bootstrapped();
 });
