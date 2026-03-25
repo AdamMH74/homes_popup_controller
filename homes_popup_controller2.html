@@ -107,7 +107,7 @@ function openHomesTab() {
   const url = new URL(popUrlStored);
   url.searchParams.set('p2', sessionStorage.getItem('userEmail') || '');
   crmTab = window.open(url.toString(), '_blank', 'width=1200,height=800');
-  updateStatus('HOMES tab opened via button: ' + url.toString());
+  updateStatus('HOMES tab opened manually: ' + url.toString());
 }
 
 // -------------------------
@@ -126,7 +126,7 @@ function closeHomesTab() {
 // -------------------------
 async function init() {
   try {
-    config = getStoredConfig();
+    const config = getStoredConfig();
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
       throw new Error('Missing required configuration parameters.');
     }
@@ -166,9 +166,14 @@ async function init() {
         const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
         if (!agent) return;
 
+        // Store the URL for manual button usage
         const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
-        if (popUrl) popUrlStored = popUrl; // store URL for button
+        if (popUrl) {
+            popUrlStored = popUrl;
+            updateStatus(`HOMES URL received, ready for manual open: ${popUrl}`);
+        }
 
+        // Automatically close tab if the call ends
         if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab) {
           closeHomesTab();
         }
@@ -182,9 +187,7 @@ async function init() {
     socket.onerror = (err) => updateStatus('WebSocket error: ' + err);
     socket.onclose = () => updateStatus('WebSocket closed.');
 
-    // -------------------------
     // Attach button click
-    // -------------------------
     document.getElementById('openHomesBtn').addEventListener('click', openHomesTab);
 
   } catch (err) {
