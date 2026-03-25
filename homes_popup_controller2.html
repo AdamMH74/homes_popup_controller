@@ -92,18 +92,41 @@
     }
 
     function showCrmButton(url) {
-      const btn = document.getElementById('openCrmBtn');
-      pendingCrmUrl = url;
-      btn.style.display = 'inline-block';
-      btn.onclick = () => {
-        if (!crmTab || crmTab.closed) {
-          crmTab = window.open(pendingCrmUrl, '_blank');
-          updateStatus(`HOMES tab opened: ${pendingCrmUrl}`);
-        } else {
-          crmTab.focus();
-        }
-      };
+  const btn = document.getElementById('openCrmBtn');
+  pendingCrmUrl = url;
+
+  // Show the button
+  btn.style.display = 'inline-block';
+
+  // Remove any previous click handlers
+  btn.onclick = null;
+
+  // Attach a safe click handler
+  btn.onclick = () => {
+    if (!pendingCrmUrl) {
+      updateStatus('No CRM URL available.');
+      return;
     }
+
+    try {
+      // Open a blank tab immediately (synchronous, user gesture)
+      if (!crmTab || crmTab.closed) {
+        crmTab = window.open('about:blank', '_blank');
+
+        // Navigate to the CRM URL after tab opens
+        crmTab.location.href = pendingCrmUrl;
+
+        updateStatus(`HOMES tab opened: ${pendingCrmUrl}`);
+      } else {
+        // Focus existing tab if already open
+        crmTab.focus();
+      }
+    } catch (err) {
+      updateStatus(`Error opening CRM tab: ${err.message}`);
+      console.error('[HOMES Popup Controller] window.open error:', err);
+    }
+  };
+}
 
     async function checkExistingActiveCalls(user, checkCounter) {
       if (checkCounter > existingCallMaxChecks) {
