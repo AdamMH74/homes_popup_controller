@@ -6,14 +6,14 @@
 
   <!-- 1️⃣ Load Platform SDK -->
   <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
-  
-  <!-- 2️⃣ Assign global platformClient for Client App SDK -->
+
+  <!-- 2️⃣ Assign global platformClient BEFORE Client App SDK loads -->
   <script>
     window.platformClient = window.purecloudPlatformClientV2;
   </script>
 
   <!-- 3️⃣ Load Client App SDK -->
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.9/purecloud-client-app-sdk.js"></script>
 
   <style>
     .info-container {
