@@ -5,181 +5,317 @@
   <title>HOMES Popup Controller</title>
   <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+
   <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 10px;
+    }
     .info-container {
       background-color: #f5f5f5;
-      padding: 20px;
-      border-radius: 5px;
-      margin-bottom: 20px;
-      font-family: Arial, sans-serif;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 15px;
       font-size: 14px;
+      line-height: 1.5;
     }
-    .info-container p {
-      margin: 5px 0;
+    .tab-status {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .tab-open {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .tab-closed {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    button {
+      padding: 6px 12px;
+      margin-top: 5px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
     }
   </style>
 </head>
 <body>
+
+  <!-- Tab Status Indicator -->
+  <div id="tabStatus" class="tab-status tab-closed">
+    <span id="tabIndicator">●</span>
+    <span id="tabText">HOMES Tab: CLOSED</span>
+    <button id="refreshBtn" style="margin-left: auto; display: none;">Refresh Tab</button>
+  </div>
+
+  <!-- General Status Log -->
   <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller...</p>
+    <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.1.1...</p>
   </div>
 
   <script>
-    window.addEventListener('load', async function() {
-      const VERSION = '1.0.3';
-      const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e']; // Pete Matthews
-      let crmTab = null;
-      let config = null;
+    const VERSION = '1.1.1';
 
+    const blockedAgentIds = [
+      'a45dcb75-1121-4fb0-b956-3fb9437e539e' // Pete Matthews
+    ];
+
+    let crmTab = null;
+    let config = null;
+
+    const existingCallCheckInterval = 2500;
+    const existingCallMaxChecks = 20;
+
+    const platformClient = require('platformClient');
+    const client = platformClient.ApiClient.instance;
+    const notificationsApi = new platformClient.NotificationsApi();
+    const conversationsApi = new platformClient.ConversationsApi();
+    const usersApi = new platformClient.UsersApi();
+
+    function updateStatus(message) {
       const statusBox = document.getElementById('statusBox');
-      function updateStatus(message) {
-        const p = document.createElement('p');
-        p.textContent = message;
-        statusBox.appendChild(p);
-      }
-      function log(...args) { console.log('[HOMES Popup Controller]', ...args); }
+      const p = document.createElement('p');
+      p.textContent = message;
+      statusBox.appendChild(p);
+      console.log('[HOMES Popup Controller]', message);
+    }
 
-      // Get query params
-      function getQueryParams() {
-        const params = new URLSearchParams(window.location.search);
-        return {
-          gc_clientId: params.get('gc_clientId'),
-          gc_region: params.get('gc_region'),
-          gc_redirectUrl: params.get('gc_redirectUrl'),
-          gcUsePopupAuth: params.get('gcUsePopupAuth'),
-          debug: params.get('debug'),
-          gcHostOrigin: params.get('gcHostOrigin'),
-          gcTargetEnv: params.get('gcTargetEnv')
-        };
+    function updateTabStatus(isOpen) {
+      const tabStatusEl = document.getElementById('tabStatus');
+      const tabText = document.getElementById('tabText');
+      const refreshBtn = document.getElementById('refreshBtn');
+
+      if (isOpen) {
+        tabStatusEl.className = 'tab-status tab-open';
+        tabText.textContent = 'HOMES Tab: OPEN ✅';
+        refreshBtn.style.display = 'inline-block';
+      } else {
+        tabStatusEl.className = 'tab-status tab-closed';
+        tabText.textContent = 'HOMES Tab: CLOSED';
+        refreshBtn.style.display = 'none';
+      }
+    }
+
+    function log(...args) {
+      console.log('[HOMES Popup Controller]', ...args);
+    }
+
+    // ... [getQueryParams, initialiseAndStorePluginConfiguration, getStoredConfig remain the same] ...
+
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        gc_clientId: params.get('gc_clientId'),
+        gc_region: params.get('gc_region'),
+        gc_redirectUrl: params.get('gc_redirectUrl'),
+        gcUsePopupAuth: params.get('gcUsePopupAuth'),
+        debug: params.get('debug'),
+        gcHostOrigin: params.get('gcHostOrigin'),
+        gcTargetEnv: params.get('gcTargetEnv')
+      };
+    }
+
+    function initialiseAndStorePluginConfiguration() {
+      const params = getQueryParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== null) sessionStorage.setItem(key, value);
+      });
+    }
+
+    function getStoredConfig() {
+      return {
+        gc_clientId: sessionStorage.getItem('gc_clientId'),
+        gc_region: sessionStorage.getItem('gc_region'),
+        gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
+        gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
+        debug: sessionStorage.getItem('debug'),
+        gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
+        gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
+      };
+    }
+
+    function isFirstAgent(participants, currentUserId) {
+      const connectedAgents = participants
+        .filter(p => p.purpose === 'agent' && p.state === 'connected')
+        .sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
+      return connectedAgents.length > 0 && connectedAgents[0].user?.id === currentUserId;
+    }
+
+    // Update tab status whenever we open or close
+    function setCrmTab(tab) {
+      crmTab = tab;
+      updateTabStatus(!!tab && !tab.closed);
+    }
+
+    async function checkExistingActiveCalls(user, checkCounter = 0) {
+      if (checkCounter > existingCallMaxChecks) {
+        updateStatus('Existing call check: Maximum attempts reached.');
+        return;
       }
 
-      function initialiseAndStorePluginConfiguration() {
-        const params = getQueryParams();
-        for (const [key, value] of Object.entries(params)) {
-          if (value !== null) sessionStorage.setItem(key, value);
+      try {
+        const activeCalls = await conversationsApi.getConversationsCalls();
+        if (!activeCalls?.entities?.length) {
+          await new Promise(r => setTimeout(r, existingCallCheckInterval));
+          return checkExistingActiveCalls(user, checkCounter + 1);
         }
-        log('Stored query parameters in sessionStorage:', params);
-      }
 
-      function getStoredConfig() {
-        return {
-          gc_clientId: sessionStorage.getItem('gc_clientId'),
-          gc_region: sessionStorage.getItem('gc_region'),
-          gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
-          gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
-          debug: sessionStorage.getItem('debug'),
-          gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
-          gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
-        };
-      }
+        for (const call of activeCalls.entities) {
+          const participants = call.participants || [];
+          const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
+          if (!agentParticipant) continue;
 
-      initialiseAndStorePluginConfiguration();
-      config = getStoredConfig();
-      updateStatus(`HOMES Popup Controller v${VERSION}`);
+          const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+          if (!popUrl || agentParticipant.state !== 'connected') continue;
 
-      // Initialize platform client
-      const client = platformClient.ApiClient.instance;
-      const notificationsApi = new platformClient.NotificationsApi();
-      const conversationsApi = new platformClient.ConversationsApi();
-      const usersApi = new platformClient.UsersApi();
+          if (isFirstAgent(participants, user.id)) {
+            const url = new URL(popUrl);
+            url.searchParams.set('p2', user.email);
 
-      // Initialize ClientApp
-      const ClientApp = window.purecloud.apps.ClientApp;
-      const myClientApp = new ClientApp({
-        gcHostOrigin: config.gcHostOrigin,
-        gcTargetEnv: config.gcTargetEnv
-      });
-
-      myClientApp.lifecycle.addStopListener(() => {
-        updateStatus('Application stopped.');
-        if (crmTab && !crmTab.closed) { crmTab.close(); crmTab = null; }
-        myClientApp.lifecycle.stopped();
-      });
-
-      myClientApp.lifecycle.addBootstrapListener(() => {
-        updateStatus('Application bootstrapped.');
-        crmTab = window.open('about:blank', 'HOMES_CRM_TAB'); // pre-open tab
-        updateStatus('CRM tab opened for future use.');
-
-        // Initialize Genesys Cloud client
-        (async function init() {
-          try {
-            if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-              throw new Error('Missing required configuration parameters.');
-            }
-
-            client.setEnvironment(config.gc_region);
-            client.setPersistSettings(true, 'homesPopupController');
-
-            updateStatus('Authenticating with Genesys Cloud...');
-            await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-            updateStatus('Authentication successful.');
-
-            const user = await usersApi.getUsersMe();
-            updateStatus(`Logged in as: ${user.name}`);
-
-            if (blockedAgentIds.includes(user.id)) {
-              updateStatus(`Agent ${user.name} is blocked from using this widget.`);
-              return;
-            }
-
-            const channel = await notificationsApi.postNotificationsChannels();
-            updateStatus('Notification channel created.');
-
-            const topic = `v2.users.${user.id}.conversations.calls`;
-            await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-            updateStatus(`Subscribed to topic: ${topic}`);
-
-            const socket = new WebSocket(channel.connectUri);
-            socket.onopen = () => updateStatus('WebSocket connection opened.');
-            socket.onerror = (err) => updateStatus('WebSocket error occurred.');
-            socket.onclose = () => updateStatus('WebSocket connection closed.');
-
-            socket.onmessage = async (event) => {
-              try {
-                const data = JSON.parse(event.data);
-                if (!data.topicName || !data.eventBody) return;
-                const participants = data.eventBody.participants || [];
-                const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-                if (!agentParticipant) return;
-                const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-                if (agentParticipant.state === 'connected' && popUrl) {
-                  const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-                  connectedAgents.sort((a,b)=>new Date(a.connectedTime)-new Date(b.connectedTime));
-                  const isFirstAgent = connectedAgents[0]?.user?.id === agentParticipant.user?.id;
-                  if (isFirstAgent) {
-                    const url = new URL(popUrl);
-                    url.searchParams.set('p2', user.email);
-                    updateStatus(`Opening HOMES tab: ${url}`);
-                    if (crmTab && !crmTab.closed) { crmTab.location.href = url.toString(); }
-                    else { crmTab = window.open(url.toString(), 'HOMES_CRM_TAB'); }
-                  }
-                }
-
-                if (['disconnected','terminated'].includes(agentParticipant.state)) {
-                  if (agentParticipant.wrapup && crmTab && !crmTab.closed) {
-                    updateStatus('Closing HOMES tab after wrap-up.');
-                    crmTab.close();
-                    crmTab = null;
-                  }
-                }
-
-              } catch(err) {
-                console.error(err);
-                updateStatus('Error processing interaction event.');
-              }
-            };
-
-          } catch(err) {
-            console.error(err);
-            updateStatus(`Initialization error: ${err.message}`);
+            updateStatus(`Opening HOMES tab from existing call: ${url}`);
+            const newTab = window.open(url.toString(), '_blank');
+            setCrmTab(newTab);
+            return;
           }
-        })();
+        }
+      } catch (err) {
+        console.error('[HOMES] Existing call check error:', err);
+      }
+    }
 
-        myClientApp.lifecycle.bootstrapped();
+    async function init() {
+      try {
+        if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+          throw new Error('Missing required configuration parameters.');
+        }
+
+        client.setEnvironment(config.gc_region);
+        client.setPersistSettings(true, 'homesPopupController');
+
+        updateStatus('Authenticating...');
+        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+        updateStatus('Authentication successful.');
+
+        const user = await usersApi.getUsersMe();
+        updateStatus(`Logged in as: ${user.name}`);
+
+        if (blockedAgentIds.includes(user.id)) {
+          updateStatus(`Agent ${user.name} is blocked.`);
+          return;
+        }
+
+        const channel = await notificationsApi.postNotificationsChannels();
+        const topic = `v2.users.${user.id}.conversations.calls`;
+        await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
+
+        const socket = new WebSocket(channel.connectUri);
+
+        socket.onopen = () => updateStatus('WebSocket connected.');
+        socket.onmessage = async (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (!data.eventBody) return;
+
+            const interaction = data.eventBody;
+            const participants = interaction.participants || [];
+            const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
+            if (!agentParticipant) return;
+
+            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+
+            // Open tab
+            if (agentParticipant.state === 'connected' && isFirstAgent(participants, user.id) && popUrl) {
+              const url = new URL(popUrl);
+              url.searchParams.set('p2', user.email);
+
+              updateStatus(`Call connected → Opening HOMES tab`);
+
+              if (!crmTab || crmTab.closed) {
+                crmTab = window.open('about:blank', '_blank');
+              }
+              crmTab.location.href = url.toString();
+              setCrmTab(crmTab);
+            }
+
+            // Close tab after wrap-up
+            if ((agentParticipant.state === 'disconnected' || agentParticipant.state === 'terminated') &&
+                agentParticipant.wrapup?.state === 'done' &&
+                crmTab && !crmTab.closed) {
+
+              updateStatus('Wrap-up completed → Closing HOMES tab');
+              crmTab.close();
+              setCrmTab(null);
+            }
+          } catch (err) {
+            console.error('[HOMES] WebSocket error:', err);
+          }
+        };
+
+        // Check existing calls
+        checkExistingActiveCalls(user);
+
+      } catch (err) {
+        updateStatus(`Error: ${err.message}`);
+        console.error(err);
+      }
+    }
+
+    // ====================== CLIENT APP LIFECYCLE ======================
+    initialiseAndStorePluginConfiguration();
+    config = getStoredConfig();
+
+    const ClientApp = window.purecloud.apps.ClientApp;
+    const myClientApp = new ClientApp({
+      gcHostOrigin: config.gcHostOrigin,
+      gcTargetEnv: config.gcTargetEnv
+    });
+
+    myClientApp.lifecycle.addBootstrapListener(() => {
+      updateStatus('ClientApp bootstrapped.');
+
+      // Pre-open tab early
+      if (!crmTab || crmTab.closed) {
+        crmTab = window.open('about:blank', '_blank');
+        setCrmTab(crmTab);
+        updateStatus('Pre-opened CRM tab (ready).');
+      }
+
+      init();
+      myClientApp.lifecycle.bootstrapped();
+    });
+
+    myClientApp.lifecycle.addStopListener(() => {
+      updateStatus('ClientApp stopping...');
+      if (crmTab && !crmTab.closed) {
+        crmTab.close();
+        setCrmTab(null);
+      }
+      myClientApp.lifecycle.stopped();
+    });
+
+    // Refresh button handler
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('refreshBtn').addEventListener('click', () => {
+        if (crmTab && !crmTab.closed) {
+          crmTab.focus();
+          updateStatus('Focused existing HOMES tab.');
+        }
       });
     });
+
   </script>
 </body>
 </html>
