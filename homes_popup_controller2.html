@@ -3,8 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
+
+  <!-- 1️⃣ Load Platform SDK -->
   <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
+  
+  <!-- 2️⃣ Assign global platformClient for Client App SDK -->
+  <script>
+    window.platformClient = window.purecloudPlatformClientV2;
+  </script>
+
+  <!-- 3️⃣ Load Client App SDK -->
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+
   <style>
     .info-container {
       background-color: #f5f5f5;
@@ -30,7 +40,7 @@
 
   function updateStatus(message) {
     const statusBox = document.getElementById('statusBox');
-    if (!statusBox) return; // safety check
+    if (!statusBox) return;
     const p = document.createElement('p');
     p.textContent = message;
     statusBox.appendChild(p);
@@ -68,18 +78,6 @@
       gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
       gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
     };
-  }
-
-  // Wait for purecloud SDK to load
-  function waitForPureCloud(timeout = 5000) {
-    return new Promise((resolve, reject) => {
-      const start = Date.now();
-      (function check() {
-        if (window.purecloud?.apps?.ClientApp) return resolve();
-        if (Date.now() - start > timeout) return reject('purecloud SDK load timeout');
-        setTimeout(check, 50);
-      })();
-    });
   }
 
   async function init(user, platformClient) {
@@ -175,24 +173,24 @@
 
   async function bootstrapClientApp() {
     try {
-      await waitForPureCloud();
-
       const config = getStoredConfig();
       const ClientApp = window.purecloud.apps.ClientApp;
+      const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
 
-const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
+      myClientApp.lifecycle.addBootstrapListener(async () => {
+        updateStatus('Application bootstrapped.');
 
-myClientApp.lifecycle.addBootstrapListener(async () => {
-    // ✅ Safe: the platformClient is now available
-    const platformClient = myClientApp.platformClient;
+        const platformClient = myClientApp.platformClient;
 
-    platformClient.ApiClient.instance.setEnvironment(config.gc_region);
-    platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
+        platformClient.ApiClient.instance.setEnvironment(config.gc_region);
+        platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
 
-    await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+        updateStatus('Authenticating with Genesys Cloud...');
+        await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+        updateStatus('Authentication successful.');
 
-    const user = await new platformClient.UsersApi().getUsersMe();
-    updateStatus(`Logged in as: ${user.name}`);
+        const user = await new platformClient.UsersApi().getUsersMe();
+        updateStatus(`Logged in as: ${user.name}`);
 
         if (!crmTab || crmTab.closed) crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
 
@@ -213,7 +211,6 @@ myClientApp.lifecycle.addBootstrapListener(async () => {
     }
   }
 
-  // --- Start after DOM loaded ---
   document.addEventListener('DOMContentLoaded', () => {
     initialiseAndStorePluginConfiguration();
     bootstrapClientApp();
