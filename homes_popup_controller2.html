@@ -5,6 +5,7 @@ const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 let crmTab = null;
 let socket = null;
 
+// --- Utility functions ---
 function updateStatus(message) {
   const statusBox = document.getElementById('statusBox');
   const p = document.createElement('p');
@@ -13,7 +14,6 @@ function updateStatus(message) {
   console.log('[HOMES Popup Controller]', message);
 }
 
-// --- Query Parameter Helpers ---
 function getQueryParams() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -47,7 +47,19 @@ function getStoredConfig() {
   };
 }
 
-// --- Initialize WebSocket & Tab Logic ---
+// --- Wait for purecloud SDK ---
+function waitForPureCloud(timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    (function check() {
+      if (window.purecloud?.apps?.ClientApp) return resolve();
+      if (Date.now() - start > timeout) return reject('purecloud SDK load timeout');
+      setTimeout(check, 50);
+    })();
+  });
+}
+
+// --- Initialize WebSocket & CRM tab logic ---
 async function init(user, platformClient) {
   if (blockedAgentIds.includes(user.id)) {
     updateStatus(`Agent ${user.name} is blocked from using this widget.`);
@@ -58,7 +70,6 @@ async function init(user, platformClient) {
   const conversationsApi = new platformClient.ConversationsApi();
 
   try {
-    // Create notification channel
     const channel = await notificationsApi.postNotificationsChannels();
     updateStatus('Notification channel created.');
 
@@ -66,10 +77,9 @@ async function init(user, platformClient) {
     await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
     updateStatus(`Subscribed to topic: ${topic}`);
 
-    // Open WebSocket
     socket = new WebSocket(channel.connectUri);
     socket.onopen = () => updateStatus('WebSocket connection opened.');
-    socket.onerror = (err) => updateStatus('WebSocket error occurred.');
+    socket.onerror = () => updateStatus('WebSocket error occurred.');
     socket.onclose = () => updateStatus('WebSocket connection closed.');
 
     socket.onmessage = async (event) => {
@@ -98,12 +108,13 @@ async function init(user, platformClient) {
           updateStatus('Closing HOMES tab after wrap-up.');
           crmTab.close(); crmTab = null;
         }
-      } catch (err) {
-        updateStatus('Error processing interaction event.');
+
+      } catch(err) {
+        updateStatus('Error processing WebSocket event.');
       }
     };
 
-    // Check existing active calls
+    // --- Handle existing calls
     await checkExistingActiveCalls(user, conversationsApi);
 
   } catch(err) {
@@ -111,7 +122,6 @@ async function init(user, platformClient) {
   }
 }
 
-// --- Existing Active Calls Check ---
 async function checkExistingActiveCalls(user, conversationsApi, retries=0) {
   if (retries > 20) return;
 
@@ -145,44 +155,48 @@ async function checkExistingActiveCalls(user, conversationsApi, retries=0) {
 }
 
 // --- Bootstrap ClientApp ---
-initialiseAndStorePluginConfiguration();
-const config = getStoredConfig();
-const ClientApp = window.purecloud.apps.ClientApp;
-const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
-
-myClientApp.lifecycle.addBootstrapListener(async () => {
-  updateStatus('Application bootstrapped.');
-
+async function bootstrapClientApp() {
   try {
-    const platformClient = window.platformClient;
-    platformClient.ApiClient.instance.setEnvironment(config.gc_region);
-    platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
+    await waitForPureCloud();
 
-    // --- Proper Implicit Grant Flow (Popup handled by SDK) ---
-    updateStatus('Authenticating with Genesys Cloud...');
-    await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-    updateStatus('Authentication successful.');
+    const config = getStoredConfig();
+    const ClientApp = window.purecloud.apps.ClientApp;
+    const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
 
-    const user = await new platformClient.UsersApi().getUsersMe();
-    updateStatus(`Logged in as: ${user.name}`);
+    myClientApp.lifecycle.addBootstrapListener(async () => {
+      updateStatus('Application bootstrapped.');
 
-    if (!crmTab || crmTab.closed) crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
+      const platformClient = window.platformClient;
+      platformClient.ApiClient.instance.setEnvironment(config.gc_region);
+      platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
 
-    await init(user, platformClient);
+      updateStatus('Authenticating with Genesys Cloud...');
+      await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+      updateStatus('Authentication successful.');
+
+      const user = await new platformClient.UsersApi().getUsersMe();
+      updateStatus(`Logged in as: ${user.name}`);
+
+      if (!crmTab || crmTab.closed) crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
+
+      await init(user, platformClient);
+      myClientApp.lifecycle.bootstrapped();
+    });
+
+    myClientApp.lifecycle.addStopListener(() => {
+      updateStatus('Application stopped.');
+      if (crmTab && !crmTab.closed) crmTab.close();
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+      crmTab = null; socket = null;
+      myClientApp.lifecycle.stopped();
+    });
 
   } catch(err) {
-    updateStatus(`Bootstrap error: ${err.message}`);
+    updateStatus(`Bootstrap error: ${err}`);
   }
+}
 
-  myClientApp.lifecycle.bootstrapped();
-});
-
-// --- Stop Listener ---
-myClientApp.lifecycle.addStopListener(() => {
-  updateStatus('Application stopped.');
-  if (crmTab && !crmTab.closed) crmTab.close();
-  if (socket && socket.readyState === WebSocket.OPEN) socket.close();
-  crmTab = null; socket = null;
-  myClientApp.lifecycle.stopped();
-});
+// --- Start ---
+initialiseAndStorePluginConfiguration();
+bootstrapClientApp();
 </script>
