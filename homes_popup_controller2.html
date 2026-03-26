@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
-  
-  <!-- Only load Client App SDK in head -->
+
+  <!-- Client App SDK already includes Platform SDK -->
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.9/purecloud-client-app-sdk.js"></script>
 
   <style>
@@ -69,32 +69,6 @@
         gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
         gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
       };
-    }
-
-    async function loadPlatformSDK() {
-      if (window.platformClient && window.platformClient.ApiClient) {
-        return window.platformClient;
-      }
-
-      updateStatus('Dynamically loading Genesys Platform SDK...');
-
-      return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://sdk-cdn.mypurecloud.com/javascript/purecloud-platform-client-v2.min.js';
-        
-        script.onload = () => {
-          window.platformClient = window.purecloudPlatformClientV2 || window.platformClient;
-          if (window.platformClient?.ApiClient) {
-            updateStatus('Platform SDK loaded successfully.');
-            resolve(window.platformClient);
-          } else {
-            reject(new Error('Platform SDK loaded but ApiClient is unavailable'));
-          }
-        };
-        
-        script.onerror = () => reject(new Error('Failed to load platform SDK script'));
-        document.head.appendChild(script);
-      });
     }
 
     async function init(user, platformClient) {
@@ -211,8 +185,8 @@
         myClientApp.lifecycle.addBootstrapListener(async () => {
           updateStatus('Application bootstrapped by Genesys Cloud.');
 
-          // Load platform SDK safely
-          const platformClient = await loadPlatformSDK();
+          // Use Platform SDK already loaded by Client App SDK
+          const platformClient = window.platformClient;
 
           platformClient.ApiClient.instance.setEnvironment(config.gc_region);
           platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
