@@ -207,7 +207,7 @@ await client.loginImplicitGrant(
             updateStatus(`Opening HOMES tab: ${url.toString()}`);
 
             if (!crmTab || crmTab.closed) {
-                crmTab = window.open('about:blank', '_blank');
+                crmTab = window.open('about:blank', 'Home_CRM');
                 log('CRM tab opened during WebSocket event.');
             }
 
@@ -272,7 +272,7 @@ myClientApp.lifecycle.addBootstrapListener(() => {
     updateStatus('Application bootstrapped.');
 
   // allow popups
-  crmTab = window.open('about:blank', '_blank');
+  crmTab = window.open('about:blank', 'Home_CRM');
     updateStatus('CRM tab opened for future use.');
 
   // ✅ MOVE INIT HERE
