@@ -285,7 +285,8 @@ myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped.');
 
   // Open tab early to avoid popup blockers
-  crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
+  await client.loginImplicitGrant(...); // completes first
+crmTab = window.open('about:blank', 'HOMES_CRM_TAB'); // then open CRM tab
   updateStatus('CRM tab opened for future use.');
 
   // Initialize everything AFTER popup is allowed
