@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
 
-  <!-- Client App SDK already includes Platform SDK -->
+  <!-- Client App SDK includes Platform SDK internally -->
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.9/purecloud-client-app-sdk.js"></script>
 
   <style>
@@ -69,6 +69,13 @@
         gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
         gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
       };
+    }
+
+    async function waitForPlatformClient(retries = 20) {
+      if (window.platformClient && window.platformClient.ApiClient) return window.platformClient;
+      if (retries <= 0) throw new Error('Platform SDK not available');
+      await new Promise(r => setTimeout(r, 500));
+      return waitForPlatformClient(retries - 1);
     }
 
     async function init(user, platformClient) {
@@ -183,33 +190,29 @@
         });
 
         myClientApp.lifecycle.addBootstrapListener(async () => {
-  updateStatus('Application bootstrapped by Genesys Cloud.');
+          updateStatus('Application bootstrapped by Genesys Cloud.');
 
-  // Correct way to get Platform SDK
-  const platformClient = myClientApp.getSDK('platformClient');
-  if (!platformClient) {
-    updateStatus('Error: Platform SDK not available yet.');
-    return;
-  }
+          // Wait for platformClient to be available
+          const platformClient = await waitForPlatformClient();
 
-  platformClient.ApiClient.instance.setEnvironment(config.gc_region);
-  platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
+          platformClient.ApiClient.instance.setEnvironment(config.gc_region);
+          platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
 
-  updateStatus('Authenticating with Genesys Cloud...');
-  await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-  updateStatus('Authentication successful.');
+          updateStatus('Authenticating with Genesys Cloud...');
+          await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+          updateStatus('Authentication successful.');
 
-  const user = await new platformClient.UsersApi().getUsersMe();
-  updateStatus(`Logged in as: ${user.name}`);
+          const user = await new platformClient.UsersApi().getUsersMe();
+          updateStatus(`Logged in as: ${user.name}`);
 
-  if (!crmTab || crmTab.closed) {
-    crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
-  }
+          if (!crmTab || crmTab.closed) {
+            crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
+          }
 
-  await init(user, platformClient);
+          await init(user, platformClient);
 
-  myClientApp.lifecycle.bootstrapped();
-});
+          myClientApp.lifecycle.bootstrapped();
+        });
 
         myClientApp.lifecycle.addStopListener(() => {
           updateStatus('Application stopped by Genesys Cloud.');
