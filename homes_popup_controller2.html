@@ -230,21 +230,22 @@
   let attempts = 0;
 
   const waitForClient = () => {
-    attempts++;
+  attempts++;
 
-    if (myClientApp.client) {
-      updateStatus('Client acquired');
-      init(myClientApp.client);
-      return;
-    }
+  if (myClientApp.client) {
+    updateStatus('Client acquired successfully');
+    init(myClientApp.client);
+    return;
+  }
 
-    if (attempts > 50) { // ~5 seconds
-      updateStatus('ERROR: Client not available (popup auth issue)');
-      return;
-    }
+  if (attempts > 100) {  // ~10 seconds
+    updateStatus(`ERROR: Client still not available after ${attempts} attempts. Check popup blocker or org pop-out auth setting.`);
+    console.error('ClientApp state:', myClientApp);  // add this
+    return;
+  }
 
-    setTimeout(waitForClient, 100);
-  };
+  setTimeout(waitForClient, 100);
+};
 
   waitForClient();
 
