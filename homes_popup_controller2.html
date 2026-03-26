@@ -54,8 +54,9 @@
 
   <!-- Tabs -->
   <div class="tabs">
-    <button class="tab-button active" onclick="switchTab('home')">Home</button>
-    <button class="tab-button" onclick="switchTab('status')">Status</button>
+  <button class="tab-button" onclick="switchTab('status')">Status</button>
+    <button class="tab-button active" onclick="switchTab('home')">Homes - CRM</button>
+    
   </div>
 
   <!-- Home Tab -->
@@ -221,21 +222,31 @@
     });
 
     myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus('Application bootstrapped');
+  updateStatus('Application bootstrapped');
 
-      // Wait for client (SDK 2.6.7 safe)
-      const waitForClient = () => {
-        if (myClientApp.client) {
-          init(myClientApp.client);
-        } else {
-          setTimeout(waitForClient, 100);
-        }
-      };
+  let attempts = 0;
 
-      waitForClient();
+  const waitForClient = () => {
+    attempts++;
 
-      myClientApp.lifecycle.bootstrapped();
-    });
+    if (myClientApp.client) {
+      updateStatus('Client acquired');
+      init(myClientApp.client);
+      return;
+    }
+
+    if (attempts > 50) { // ~5 seconds
+      updateStatus('ERROR: Client not available (popup auth issue)');
+      return;
+    }
+
+    setTimeout(waitForClient, 100);
+  };
+
+  waitForClient();
+
+  myClientApp.lifecycle.bootstrapped();
+});
 
     myClientApp.lifecycle.addStopListener(() => {
       updateStatus('Application stopped');
