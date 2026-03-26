@@ -183,30 +183,33 @@
         });
 
         myClientApp.lifecycle.addBootstrapListener(async () => {
-          updateStatus('Application bootstrapped by Genesys Cloud.');
+  updateStatus('Application bootstrapped by Genesys Cloud.');
 
-          // Use Platform SDK already loaded by Client App SDK
-          const platformClient = window.platformClient;
+  // Correct way to get Platform SDK
+  const platformClient = myClientApp.getSDK('platformClient');
+  if (!platformClient) {
+    updateStatus('Error: Platform SDK not available yet.');
+    return;
+  }
 
-          platformClient.ApiClient.instance.setEnvironment(config.gc_region);
-          platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
+  platformClient.ApiClient.instance.setEnvironment(config.gc_region);
+  platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
 
-          updateStatus('Authenticating with Genesys Cloud...');
-          await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-          updateStatus('Authentication successful.');
+  updateStatus('Authenticating with Genesys Cloud...');
+  await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+  updateStatus('Authentication successful.');
 
-          const user = await new platformClient.UsersApi().getUsersMe();
-          updateStatus(`Logged in as: ${user.name}`);
+  const user = await new platformClient.UsersApi().getUsersMe();
+  updateStatus(`Logged in as: ${user.name}`);
 
-          if (!crmTab || crmTab.closed) {
-            crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
-          }
+  if (!crmTab || crmTab.closed) {
+    crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
+  }
 
-          await init(user, platformClient);
+  await init(user, platformClient);
 
-          // Tell Genesys Cloud we are ready
-          myClientApp.lifecycle.bootstrapped();
-        });
+  myClientApp.lifecycle.bootstrapped();
+});
 
         myClientApp.lifecycle.addStopListener(() => {
           updateStatus('Application stopped by Genesys Cloud.');
