@@ -179,22 +179,20 @@
 
       const config = getStoredConfig();
       const ClientApp = window.purecloud.apps.ClientApp;
-      const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
 
-      myClientApp.lifecycle.addBootstrapListener(async () => {
-        updateStatus('Application bootstrapped.');
+const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
 
-        const platformClient = window.purecloudPlatformClientV2;
+myClientApp.lifecycle.addBootstrapListener(async () => {
+    // ✅ Safe: the platformClient is now available
+    const platformClient = myClientApp.platformClient;
 
-platformClient.ApiClient.instance.setEnvironment(config.gc_region);
-platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
+    platformClient.ApiClient.instance.setEnvironment(config.gc_region);
+    platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
 
-updateStatus('Authenticating with Genesys Cloud...');
-await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-updateStatus('Authentication successful.');
+    await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
 
-const user = await new platformClient.UsersApi().getUsersMe();
-updateStatus(`Logged in as: ${user.name}`);
+    const user = await new platformClient.UsersApi().getUsersMe();
+    updateStatus(`Logged in as: ${user.name}`);
 
         if (!crmTab || crmTab.closed) crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
 
