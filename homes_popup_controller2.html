@@ -184,16 +184,17 @@
       myClientApp.lifecycle.addBootstrapListener(async () => {
         updateStatus('Application bootstrapped.');
 
-        const platformClient = window.platformClient;
-        platformClient.ApiClient.instance.setEnvironment(config.gc_region);
-        platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
+        const platformClient = window.purecloudPlatformClientV2;
 
-        updateStatus('Authenticating with Genesys Cloud...');
-        await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
-        updateStatus('Authentication successful.');
+platformClient.ApiClient.instance.setEnvironment(config.gc_region);
+platformClient.ApiClient.instance.setPersistSettings(true, 'homesPopupController');
 
-        const user = await new platformClient.UsersApi().getUsersMe();
-        updateStatus(`Logged in as: ${user.name}`);
+updateStatus('Authenticating with Genesys Cloud...');
+await platformClient.ApiClient.instance.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+updateStatus('Authentication successful.');
+
+const user = await new platformClient.UsersApi().getUsersMe();
+updateStatus(`Logged in as: ${user.name}`);
 
         if (!crmTab || crmTab.closed) crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
 
