@@ -212,40 +212,44 @@
 
     // ====================== BOOTSTRAP ======================
     initialiseAndStorePluginConfiguration();
-    config = getStoredConfig();
+config = getStoredConfig();
 
-    const ClientApp = window.purecloud.apps.ClientApp;
-
-    const myClientApp = new ClientApp({
+const myClientApp = new ClientApp({
   gcHostOrigin: config.gcHostOrigin,
   gcTargetEnv: config.gcTargetEnv,
-  // Add these for better dynamic detection (recommended by SDK docs):
+  // These two lines help the SDK auto-detect the environment better
   gcHostOriginQueryParam: 'gcHostOrigin',
   gcTargetEnvQueryParam: 'gcTargetEnv'
 });
 
-    myClientApp.lifecycle.addBootstrapListener(() => {
+myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped');
 
   let attempts = 0;
+  const maxAttempts = 150; // ~15 seconds
 
   const waitForClient = () => {
-  attempts++;
+    attempts++;
 
-  if (myClientApp.client) {
-    updateStatus('Client acquired successfully');
-    init(myClientApp.client);
-    return;
-  }
+    if (myClientApp.client) {
+      updateStatus('✅ Client acquired successfully');
+      init(myClientApp.client);
+      return;
+    }
 
-  if (attempts > 100) {  // ~10 seconds
-    updateStatus(`ERROR: Client still not available after ${attempts} attempts. Check popup blocker or org pop-out auth setting.`);
-    console.error('ClientApp state:', myClientApp);  // add this
-    return;
-  }
+    if (attempts > maxAttempts) {
+      updateStatus(`❌ ERROR: Client still not available after ${attempts} attempts.`);
+      updateStatus('→ Check: 1) Pop-up blocker  2) Pop-out auth setting  3) Full logout/login');
+      console.error('ClientApp debug:', {
+        hasClient: !!myClientApp.client,
+        gcHostOrigin: config.gcHostOrigin,
+        gcTargetEnv: config.gcTargetEnv
+      });
+      return;
+    }
 
-  setTimeout(waitForClient, 100);
-};
+    setTimeout(waitForClient, 100);
+  };
 
   waitForClient();
 
