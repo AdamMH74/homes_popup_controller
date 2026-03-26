@@ -271,8 +271,12 @@ var myClientApp = new ClientApp({
 myClientApp.lifecycle.addBootstrapListener(() => {
     updateStatus('Application bootstrapped.');
 
-    // Open the CRM tab synchronously — Chrome will allow this
-    crmTab = window.open('about:blank', '_blank');
+  // allow popups
+  crmTab = window.open('about:blank', '_blank');
+    updateStatus('CRM tab opened for future use.');
+
+  // ✅ MOVE INIT HERE
+  init();
 
     myClientApp.lifecycle.bootstrapped();
 });
@@ -286,18 +290,6 @@ myClientApp.lifecycle.addStopListener(() => {
     myClientApp.lifecycle.stopped();
 });
 
-app.lifecycle.addBootstrapListener(() => {
-  updateStatus('Application bootstrapped.');
-
-  // allow popups
-  crmTab = window.open('about:blank', '_blank');
-    updateStatus('CRM tab opened for future use.');
-
-  // ✅ MOVE INIT HERE
-  init();
-
-  app.lifecycle.bootstrapped();
-});
 </script>
 </body>
 </html>
