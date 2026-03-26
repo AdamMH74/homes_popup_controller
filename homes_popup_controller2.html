@@ -217,9 +217,12 @@
     const ClientApp = window.purecloud.apps.ClientApp;
 
     const myClientApp = new ClientApp({
-      gcHostOrigin: config.gcHostOrigin,
-      gcTargetEnv: config.gcTargetEnv
-    });
+  gcHostOrigin: config.gcHostOrigin,
+  gcTargetEnv: config.gcTargetEnv,
+  // Add these for better dynamic detection (recommended by SDK docs):
+  gcHostOriginQueryParam: 'gcHostOrigin',
+  gcTargetEnvQueryParam: 'gcTargetEnv'
+});
 
     myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped');
