@@ -259,36 +259,44 @@ function isFirstAgent(participants, userId) {
 }
 
 // Initialize config and ClientApp
-initialiseAndStorePluginConfiguration();
-config = getStoredConfig();
+    // ====================== CLIENT APP LIFECYCLE ======================
+    initialiseAndStorePluginConfiguration();
+    config = getStoredConfig();
 
-var ClientApp = window.purecloud.apps.ClientApp;
-var myClientApp = new ClientApp({
-    gcHostOrigin: config.gcHostOrigin,
-    gcTargetEnv: config.gcTargetEnv
-});
+    const ClientApp = window.purecloud.apps.ClientApp;
+    const myClientApp = new ClientApp({
+      gcHostOrigin: config.gcHostOrigin,
+      gcTargetEnv: config.gcTargetEnv
+    });
 
-myClientApp.lifecycle.addBootstrapListener(() => {
-    updateStatus('Application bootstrapped.');
+    myClientApp.lifecycle.addBootstrapListener(() => {
+  updateStatus('Application bootstrapped');
+  openPlaceholderTab();
 
-  // allow popups
-  crmTab = window.open('about:blank', 'Home_CRM');
-    updateStatus('CRM tab opened for future use.');
-
-  // ✅ MOVE INIT HERE
-  init();
-
-    myClientApp.lifecycle.bootstrapped();
-});
-
-myClientApp.lifecycle.addStopListener(() => {
-    updateStatus('Application stopped.');
-    if (crmTab && !crmTab.closed) {
-        crmTab.close();
-        crmTab = null;
+  const waitForClient = () => {
+    if (myClientApp.client) {
+      init(myClientApp.client);
+    } else {
+      setTimeout(waitForClient, 100);
     }
-    myClientApp.lifecycle.stopped();
+  };
+
+  waitForClient();
+
+  myClientApp.lifecycle.bootstrapped();
 });
+
+    myClientApp.lifecycle.addStopListener(() => {
+      updateStatus('Application stopped');
+      if (crmTab && !crmTab.closed) crmTab.close();
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+      myClientApp.lifecycle.stopped();
+    });
+
+    window.addEventListener('beforeunload', () => {
+      if (crmTab && !crmTab.closed) crmTab.close();
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+    });
 
 </script>
 </body>
