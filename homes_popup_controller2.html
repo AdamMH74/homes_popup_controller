@@ -113,7 +113,9 @@
 		for (const call of activeCalls.entities || []) {
 		  const participants = call.participants || [];
 		  const agentParticipant = participants.find(p => p.purpose === 'agent' && p?.user?.id === user.id);
-		  const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
+		  const popUrl = (participants || [])
+  .map(p => p.attributes?.UD_ScreenPop_URL)
+  .find(url => url);
 		  
 		  if (popUrl == undefined) {
 		    updateStatus(`Call control : No Homes pop up associated with this call.`);
@@ -130,17 +132,21 @@
 			return;
 		  }
 
-		  if (agentParticipant?.state === 'connected' && popUrl && !crmTab) {
+		  if (agentParticipant?.state === 'connected' && popUrl) { 
 			const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
 			connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
 			const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
 
 			if (isFirstAgent) {
-			  const url = new URL(popUrl);
-			  url.searchParams.set('p2', user.email);
-			  updateStatus(`Call control : Opening Homes tab from existing call: ${url.toString()}`);
-			  crmTab = window.open(url.toString(), '_blank');
-			} else {
+  const url = new URL(popUrl);
+  url.searchParams.set('p2', user.email);
+  updateStatus(`Opening Homes tab from existing call: ${url.toString()}`);
+  if (crmTab && !crmTab.closed) {
+    crmTab.location.href = url.toString();
+  } else {
+    crmTab = window.open(url.toString(), 'HOMES_CRM_TAB');
+  }
+} else {
 			  updateStatus(`Call control : Homes pops up for the initial agent only.`);
 			}
 		  }
@@ -204,11 +210,15 @@
 
               const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
 
-              if (isFirstAgent && popUrl && !crmTab) {
+              if (isFirstAgent && popUrl)  {
                 const url = new URL(popUrl);
                 url.searchParams.set('p2', user.email); // Add the agent's email as 'p2'
                 updateStatus(`Opening HOMES tab: ${url.toString()}`);
-                crmTab = window.open(url.toString(), '_blank');
+                if (crmTab && !crmTab.closed) {
+  crmTab.location.href = url.toString();
+} else {
+  crmTab = window.open(url.toString(), 'HOMES_CRM_TAB');
+}
               }
             }
 
@@ -261,14 +271,6 @@ var myClientApp = new ClientApp({
     gcTargetEnv: config.gcTargetEnv
 });
 
-myClientApp.lifecycle.addBootstrapListener(() => {
-    updateStatus('Application bootstrapped.');
-
-    // Open the CRM tab synchronously — Chrome will allow this
-    crmTab = window.open('about:blank', '_blank');
-
-    myClientApp.lifecycle.bootstrapped();
-});
 
 myClientApp.lifecycle.addStopListener(() => {
     updateStatus('Application stopped.');
@@ -279,17 +281,17 @@ myClientApp.lifecycle.addStopListener(() => {
     myClientApp.lifecycle.stopped();
 });
 
-app.lifecycle.addBootstrapListener(() => {
+myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus('Application bootstrapped.');
 
-  // allow popups
-  crmTab = window.open('about:blank', '_blank');
-    updateStatus('CRM tab opened for future use.');
+  // Open tab early to avoid popup blockers
+  crmTab = window.open('about:blank', 'HOMES_CRM_TAB');
+  updateStatus('CRM tab opened for future use.');
 
-  // ✅ MOVE INIT HERE
+  // Initialize everything AFTER popup is allowed
   init();
 
-  app.lifecycle.bootstrapped();
+  myClientApp.lifecycle.bootstrapped();
 });
     
   </script>
