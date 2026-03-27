@@ -74,38 +74,67 @@
   });
 
   // === Bootstrap Listener ===
-  myClientApp.lifecycle.addBootstrapListener(() => {
-    updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
+  // Wait until authentication API is ready
+function waitForAuth(clientApp) {
+  return new Promise((resolve, reject) => {
+    const checkAuth = () => {
+      if (clientApp.authentication && typeof clientApp.authentication.getAccessToken === 'function') {
+        resolve(clientApp.authentication);
+      } else {
+        setTimeout(checkAuth, 50);
+      }
+    };
+    checkAuth();
+  });
+}
 
-    myClientApp.authentication.getAccessToken()
+myClientApp.lifecycle.addBootstrapListener(() => {
+  updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
+
+  try {
+    const platformClient = require('platformClient');
+    const client = platformClient.ApiClient.instance;
+
+    client.setEnvironment(config.gc_region);
+    client.setPersistSettings(true, 'homesClient');
+    updateStatus('✅ Platform client initialized');
+
+    waitForAuth(myClientApp)
+      .then(auth => auth.getAccessToken())
       .then(token => {
-        updateStatus('✅ Access token acquired');
-
-        const platformClient = require('platformClient');
-        const client = platformClient.ApiClient.instance;
-        client.setEnvironment(config.gc_region);
+        if (!token) throw new Error('No token returned from Client App SDK');
         client.setAccessToken(token);
+        updateStatus('✅ Access token set in Platform Client');
 
         const usersApi = new platformClient.UsersApi();
 
-        return usersApi.getUsersMe()
+        return usersApi.getUsersMe({ expand: ['presence', 'routingStatus'] })
           .then(me => {
-            updateStatus(`✅ Current user: ${me.name}`);
+            updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
             return usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
           })
           .then(response => {
+            updateStatus(`✅ Fetched page ${response.pageNumber} of users`);
             if (response.entities && response.entities.length > 0) {
               displayUsers(response.entities);
+            } else {
+              updateStatus('No users returned.');
             }
           });
       })
       .catch(err => {
-        updateStatus(`❌ ${err.message || err}`, true);
+        updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
+        console.error(err);
       })
       .finally(() => {
         myClientApp.lifecycle.bootstrapped();
+        updateStatus('Lifecycle: bootstrapped() called.');
       });
-  });
+
+  } catch (err) {
+    updateStatus(`❌ Init error: ${err.message || err}`, true);
+  }
+});
 
   myClientApp.lifecycle.addStopListener(() => {
     updateStatus('Client App SDK stopped.');
