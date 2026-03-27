@@ -9,7 +9,7 @@
       border: 1px solid #ccc; 
       padding: 15px; 
       background: white; 
-      min-height: 400px;
+      min-height: 450px;
       font-family: monospace;
       white-space: pre-wrap;
       overflow: auto;
@@ -21,12 +21,12 @@
   <h2>HOMES Client Debug</h2>
   <div id="statusBox"></div>
 
-  <!-- Only load Platform Client SDK (Client App SDK is provided by Genesys Cloud) -->
+  <!-- Only Platform Client SDK - official CDN -->
   <script src="purecloud-platform-client-v2.min.js"></script>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const VERSION = '1.2.3';
+      const VERSION = '1.2.4';
 
       function updateStatus(message, replaceLast = false) {
         const statusBox = document.getElementById('statusBox');
@@ -44,8 +44,10 @@
         console.log('[HOMES Client]', message);
       }
 
+      updateStatus('✅ DOM loaded - script running');
+
       // -------------------------------
-      // 1️⃣ Query parameter handling
+      // 1️⃣ Query parameter handling (unchanged)
       // -------------------------------
       function getQueryParams() {
         const params = new URLSearchParams(window.location.search);
@@ -90,90 +92,109 @@
       updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
       if (!config.gc_clientId || !config.gc_redirectUrl) {
-        updateStatus('Error: Missing required configuration: gc_clientId or gc_redirectUrl', true);
+        updateStatus('Error: Missing required configuration', true);
         return;
       }
 
       // -------------------------------
-      // 3️⃣ Initialize Platform Client
+      // 3️⃣ Wait for and get Platform Client SDK
       // -------------------------------
-      const platformClient = window.purecloud?.platformClient || window.platformClient;
+      function getPlatformClient() {
+        return window.purecloud?.platformClient || 
+               window.platformClient || 
+               window.PureCloudPlatform;
+      }
+
+      let platformClient = getPlatformClient();
 
       if (!platformClient) {
-        updateStatus('ERROR: Platform Client SDK not loaded. Check script tag or network.', true);
-        return;
-      }
-
-      updateStatus('✅ Platform Client SDK loaded successfully.');
-
-      const client = platformClient.ApiClient.instance;
-      client.setEnvironment(config.gc_region || 'mypurecloud.com.au');
-      client.setPersistSettings(true, 'homesClient');
-
-      const usersApi = new platformClient.UsersApi();
-
-      // -------------------------------
-      // 4️⃣ Client App SDK (provided by Genesys Cloud - do NOT load manually)
-      // -------------------------------
-      const ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
-      const myClientApp = ClientApp ? new ClientApp({
-        gcHostOrigin: config.gcHostOrigin,
-        gcTargetEnv: config.gcTargetEnv
-      }) : null;
-
-      if (myClientApp) {
-        updateStatus('✅ Client App SDK detected (injected by Genesys Cloud).');
-      } else {
-        updateStatus('⚠️ Client App SDK not available - running in standalone/popup test mode.');
-      }
-
-      // -------------------------------
-      // 5️⃣ Authenticate and fetch user
-      // -------------------------------
-      async function fetchCurrentUser() {
-        try {
-          updateStatus('Authenticating with Implicit Grant...', true);
-
-          await client.loginImplicitGrant(
-            config.gc_clientId,
-            config.gc_redirectUrl,
-            config.gcUsePopupAuth === 'true'
-          );
-
-          updateStatus('✅ Authentication successful.', true);
-
-          const user = await usersApi.getUsersMe();
-          updateStatus(`Logged in as: ${user.name || 'N/A'}`, true);
-          updateStatus(`Email: ${user.email || 'N/A'}`, true);
-
-          if (myClientApp) {
-            updateStatus('Signaling bootstrap complete to Genesys Cloud.', true);
-            myClientApp.lifecycle.bootstrapped();
+        updateStatus('Platform Client not ready yet - waiting 800ms...');
+        
+        setTimeout(() => {
+          platformClient = getPlatformClient();
+          
+          if (!platformClient) {
+            updateStatus('❌ ERROR: Platform Client SDK still not loaded after delay.', true);
+            updateStatus('Possible causes: Network block, wrong CDN, or running in unsupported context.', true);
+            return;
           }
-        } catch (err) {
-          console.error('[HOMES Client] Auth error:', err);
-          updateStatus(`❌ Authentication failed: ${err.message || err}`, true);
-        }
+          
+          updateStatus('✅ Platform Client SDK loaded after delay.');
+          proceedWithInit(platformClient);
+        }, 800);
+      } else {
+        updateStatus('✅ Platform Client SDK loaded immediately.');
+        proceedWithInit(platformClient);
       }
 
       // -------------------------------
-      // 6️⃣ Lifecycle listeners
+      // Main initialization function
       // -------------------------------
-      if (myClientApp) {
-        myClientApp.lifecycle.addBootstrapListener(async () => {
-          updateStatus(`Client App SDK bootstrapped (v${VERSION}).`, true);
-          myClientApp.lifecycle.bootstrapped();
-          await fetchCurrentUser();
-        });
+      function proceedWithInit(platformClient) {
+        const client = platformClient.ApiClient.instance;
+        client.setEnvironment(config.gc_region || 'mypurecloud.com.au');
+        client.setPersistSettings(true, 'homesClient');
 
-        myClientApp.lifecycle.addStopListener(() => {
-          updateStatus('Client App SDK stopped.', true);
-          if (myClientApp.lifecycle.stopped) myClientApp.lifecycle.stopped();
-        });
-      } else {
-        // Fallback for direct testing or popup
-        updateStatus('No ClientApp SDK detected → starting auth directly');
-        fetchCurrentUser();
+        const usersApi = new platformClient.UsersApi();
+
+        // Client App SDK (injected by Genesys - do not load manually)
+        const ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
+        const myClientApp = ClientApp ? new ClientApp({
+          gcHostOrigin: config.gcHostOrigin,
+          gcTargetEnv: config.gcTargetEnv
+        }) : null;
+
+        if (myClientApp) {
+          updateStatus('✅ Client App SDK detected from Genesys Cloud.');
+        } else {
+          updateStatus('⚠️ No Client App SDK - running in popup/standalone mode.');
+        }
+
+        // -------------------------------
+        // Authenticate and fetch user
+        // -------------------------------
+        async function fetchCurrentUser() {
+          try {
+            updateStatus('Starting Implicit Grant authentication...', true);
+
+            await client.loginImplicitGrant(
+              config.gc_clientId,
+              config.gc_redirectUrl,
+              config.gcUsePopupAuth === 'true'
+            );
+
+            updateStatus('✅ Authentication successful.', true);
+
+            const user = await usersApi.getUsersMe();
+            updateStatus(`Logged in as: ${user.name || 'N/A'}`, true);
+            updateStatus(`Email: ${user.email || 'N/A'}`, true);
+
+            if (myClientApp) {
+              myClientApp.lifecycle.bootstrapped();
+              updateStatus('Signaled bootstrapped() to Genesys Cloud.', true);
+            }
+          } catch (err) {
+            console.error('[HOMES Client] Error:', err);
+            updateStatus(`❌ Failed: ${err.message || err}`, true);
+          }
+        }
+
+        // -------------------------------
+        // Lifecycle listeners
+        // -------------------------------
+        if (myClientApp) {
+          myClientApp.lifecycle.addBootstrapListener(async () => {
+            updateStatus(`Client App bootstrapped (v${VERSION}).`, true);
+            await fetchCurrentUser();
+          });
+
+          myClientApp.lifecycle.addStopListener(() => {
+            updateStatus('Client App SDK stopped.', true);
+          });
+        } else {
+          // Direct run for popup testing
+          fetchCurrentUser();
+        }
       }
     });
   </script>
