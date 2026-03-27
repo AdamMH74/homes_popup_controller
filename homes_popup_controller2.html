@@ -21,13 +21,12 @@
   <h2>HOMES Client Debug</h2>
   <div id="statusBox"></div>
 
-  <!-- SDKs (fallback loading - safe even inside Genesys Cloud) -->
+  <!-- Only load Platform Client SDK (Client App SDK is provided by Genesys Cloud) -->
   <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/latest/purecloud-client-app-sdk.min.js"></script>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const VERSION = '1.2.2';
+      const VERSION = '1.2.3';
 
       function updateStatus(message, replaceLast = false) {
         const statusBox = document.getElementById('statusBox');
@@ -96,21 +95,16 @@
       }
 
       // -------------------------------
-      // 3️⃣ Get Platform Client (with better detection)
+      // 3️⃣ Initialize Platform Client
       // -------------------------------
-      let platformClient = window.purecloud?.platformClient || window.platformClient;
-
-      // Extra fallback in case Genesys injects it differently
-      if (!platformClient && window.PureCloudPlatform) {
-        platformClient = window.PureCloudPlatform;
-      }
+      const platformClient = window.purecloud?.platformClient || window.platformClient;
 
       if (!platformClient) {
-        updateStatus('ERROR: Platform Client SDK not loaded. SDK loading may be blocked or delayed.', true);
+        updateStatus('ERROR: Platform Client SDK not loaded. Check script tag or network.', true);
         return;
       }
 
-      updateStatus('Platform Client SDK detected successfully.');
+      updateStatus('✅ Platform Client SDK loaded successfully.');
 
       const client = platformClient.ApiClient.instance;
       client.setEnvironment(config.gc_region || 'mypurecloud.com.au');
@@ -119,19 +113,18 @@
       const usersApi = new platformClient.UsersApi();
 
       // -------------------------------
-      // 4️⃣ Initialize PureCloud Client App SDK
+      // 4️⃣ Client App SDK (provided by Genesys Cloud - do NOT load manually)
       // -------------------------------
-      let ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
-
+      const ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
       const myClientApp = ClientApp ? new ClientApp({
         gcHostOrigin: config.gcHostOrigin,
         gcTargetEnv: config.gcTargetEnv
       }) : null;
 
       if (myClientApp) {
-        updateStatus('Client App SDK initialized.');
+        updateStatus('✅ Client App SDK detected (injected by Genesys Cloud).');
       } else {
-        updateStatus('Warning: Client App SDK not found - running in limited mode.');
+        updateStatus('⚠️ Client App SDK not available - running in standalone/popup test mode.');
       }
 
       // -------------------------------
@@ -139,7 +132,7 @@
       // -------------------------------
       async function fetchCurrentUser() {
         try {
-          updateStatus('Starting authentication...', true);
+          updateStatus('Authenticating with Implicit Grant...', true);
 
           await client.loginImplicitGrant(
             config.gc_clientId,
@@ -147,10 +140,10 @@
             config.gcUsePopupAuth === 'true'
           );
 
-          updateStatus('Authentication successful.', true);
+          updateStatus('✅ Authentication successful.', true);
 
           const user = await usersApi.getUsersMe();
-          updateStatus(`Logged in as: ${user.name}`, true);
+          updateStatus(`Logged in as: ${user.name || 'N/A'}`, true);
           updateStatus(`Email: ${user.email || 'N/A'}`, true);
 
           if (myClientApp) {
@@ -159,7 +152,7 @@
           }
         } catch (err) {
           console.error('[HOMES Client] Auth error:', err);
-          updateStatus(`Authentication failed: ${err.message || err}`, true);
+          updateStatus(`❌ Authentication failed: ${err.message || err}`, true);
         }
       }
 
@@ -178,8 +171,8 @@
           if (myClientApp.lifecycle.stopped) myClientApp.lifecycle.stopped();
         });
       } else {
-        // Standalone / popup testing fallback
-        updateStatus('No ClientApp SDK - starting auth directly (for testing)');
+        // Fallback for direct testing or popup
+        updateStatus('No ClientApp SDK detected → starting auth directly');
         fetchCurrentUser();
       }
     });
