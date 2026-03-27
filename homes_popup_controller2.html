@@ -39,19 +39,31 @@
       console.log('[HOMES Client]', message);
     }
 
-    function getQueryParams() {
-      const params = new URLSearchParams(window.location.search);
-      return {
-        gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
-        gc_redirectUrl: params.get('gc_redirectUrl'),
-        gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv')
-      };
-    }
+    function normalizeRegion(region) {
+  if (!region) return region;
+  if (!region.startsWith('apps.')) {
+    return 'apps.' + region;
+  }
+  return region;
+}
+
+function getQueryParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    gc_clientId: params.get('gc_clientId'),
+    gc_region: params.get('gc_region'),
+    gc_redirectUrl: params.get('gc_redirectUrl'),
+    gcHostOrigin: params.get('gcHostOrigin'),
+    gcTargetEnv: params.get('gcTargetEnv')
+  };
+}
 
     const config = getQueryParams();
-    updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
+
+// Fix the region to ensure OAuth works
+config.gc_region = normalizeRegion(config.gc_region);
+
+updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
     function parseHashToken() {
       const hash = window.location.hash.substring(1); // remove #
