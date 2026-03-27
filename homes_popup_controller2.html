@@ -1,3 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HOMES Popup Controller v2.0</title>
+<script src="purecloud-platform-client-v2.min.js"></script>
+<script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+<style>
+.info-container {
+  background-color: #f5f5f5;
+  padding: 20px;
+  border-radius: 5px;
+  margin-bottom: 20px;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+}
+.info-container p {
+  margin: 5px 0;
+}
+</style>
+</head>
+<body>
+<div class="info-container" id="statusBox">
+  <p><strong>Status:</strong> Initializing HOMES Popup Controller...</p>
+</div>
+
 <script>
 const VERSION = '2.0.0';
 const DEBUG = true;
@@ -57,13 +83,11 @@ function openPlaceholderTab() {
 
 function openCRM(url) {
   if (!url) return;
-
   if (crmTab && !crmTab.closed) {
     crmTab.focus();
   } else {
     crmTab = window.open('about:blank', 'Home_CRM');
   }
-
   setTimeout(() => {
     if (crmTab && !crmTab.closed) {
       crmTab.location.href = url;
@@ -85,44 +109,29 @@ function isFirstAgent(participants, userId) {
   const agents = participants
     .filter(p => p.purpose === 'agent' && p.state === 'connected')
     .sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-
   return agents[0]?.user?.id === userId;
 }
 
 async function checkExistingCalls(user, conversationsApi) {
   for (let i = 0; i < existingCallMaxChecks; i++) {
     const calls = await conversationsApi.getConversationsCalls();
-
     if (calls?.total > 0) {
       for (const call of calls.entities || []) {
         const participants = call.participants || [];
-
-        const agent = participants.find(
-          p => p.purpose === 'agent' && p.user?.id === user.id
-        );
-
-        const popUrl = participants
-          .map(p => p.attributes?.UD_ScreenPop_URL)
-          .find(Boolean);
-
-        if (!agent || !popUrl) continue;
-
-        if (agent.state !== 'connected') continue;
-
+        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
+        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+        if (!agent || !popUrl || agent.state !== 'connected') continue;
         if (isFirstAgent(participants, user.id)) {
           const url = new URL(popUrl);
           url.searchParams.set('p2', user.email);
-
           updateStatus(`Opening CRM (existing call)`);
           openCRM(url.toString());
           return;
         }
       }
     }
-
     await new Promise(r => setTimeout(r, existingCallCheckInterval));
   }
-
   updateStatus('No active calls detected after max checks');
 }
 
@@ -130,7 +139,6 @@ async function checkExistingCalls(user, conversationsApi) {
 async function init(clientApp) {
   const platformClient = require('platformClient');
   const client = platformClient.ApiClient.instance;
-
   const notificationsApi = new platformClient.NotificationsApi();
   const conversationsApi = new platformClient.ConversationsApi();
   const usersApi = new platformClient.UsersApi();
@@ -139,12 +147,7 @@ async function init(clientApp) {
   client.setPersistSettings(true, 'homesPopupController');
 
   updateStatus('Authenticating...');
-
-  await client.loginImplicitGrant(
-    config.gc_clientId,
-    config.gc_redirectUrl,
-    { usePopup: true }
-  );
+  await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl, { usePopup: true });
 
   const user = await usersApi.getUsersMe();
   updateStatus(`Logged in: ${user.name}`);
@@ -157,53 +160,28 @@ async function init(clientApp) {
   // Notifications
   const channel = await notificationsApi.postNotificationsChannels();
   const topic = `v2.users.${user.id}.conversations.calls`;
-
-  await notificationsApi.putNotificationsChannelSubscriptions(
-    channel.id,
-    [{ id: topic }]
-  );
+  await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
 
   socket = new WebSocket(channel.connectUri);
-
   socket.onopen = () => updateStatus('WebSocket connected');
-
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
     const interaction = data.eventBody;
-
     if (!interaction) return;
-
     const participants = interaction.participants || [];
-
-    const agent = participants.find(
-      p => p.purpose === 'agent' && p.user?.id === user.id
-    );
-
+    const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
     if (!agent) return;
-
-    const popUrl = participants
-      .map(p => p.attributes?.UD_ScreenPop_URL)
-      .find(Boolean);
-
-    if (
-      agent.state === 'connected' &&
-      popUrl &&
-      isFirstAgent(participants, user.id)
-    ) {
+    const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+    if (agent.state === 'connected' && popUrl && isFirstAgent(participants, user.id)) {
       const url = new URL(popUrl);
       url.searchParams.set('p2', user.email);
-
       updateStatus('Opening CRM (live event)');
       openCRM(url.toString());
     }
-
-    if (
-      ['disconnected', 'terminated'].includes(agent.state)
-    ) {
+    if (['disconnected', 'terminated'].includes(agent.state)) {
       closeCRM();
     }
   };
-
   socket.onerror = () => updateStatus('WebSocket error');
   socket.onclose = () => updateStatus('WebSocket closed');
 
@@ -211,49 +189,59 @@ async function init(clientApp) {
   checkExistingCalls(user, conversationsApi);
 }
 
+// ====================== SDK TIMING FIX ======================
+function waitForPureCloudSDK(callback) {
+  const maxAttempts = 50;
+  let attempts = 0;
+  const interval = setInterval(() => {
+    if (window.purecloud?.apps?.ClientApp) {
+      clearInterval(interval);
+      callback();
+    } else {
+      attempts++;
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        updateStatus('ERROR: PureCloud SDK not available');
+        console.error('PureCloud SDK failed to load');
+      }
+    }
+  }, 100);
+}
+
 // ====================== LIFECYCLE ======================
 storeConfig();
 config = getConfig();
 
-const ClientApp = window.purecloud.apps.ClientApp;
+waitForPureCloudSDK(() => {
+  const ClientApp = window.purecloud.apps.ClientApp;
+  const app = new ClientApp({
+    gcHostOrigin: config.gcHostOrigin,
+    gcTargetEnv: config.gcTargetEnv
+  });
 
-const app = new ClientApp({
-  gcHostOrigin: config.gcHostOrigin,
-  gcTargetEnv: config.gcTargetEnv
-});
+  app.lifecycle.addBootstrapListener(() => {
+    updateStatus(`HOMES v${VERSION} bootstrapped`);
+    openPlaceholderTab();
 
-app.lifecycle.addBootstrapListener(() => {
-  updateStatus(`HOMES v${VERSION} bootstrapped`);
+    const wait = () => {
+      if (app.client) init(app.client);
+      else setTimeout(wait, 100);
+    };
+    wait();
+    app.lifecycle.bootstrapped();
+  });
 
-  openPlaceholderTab();
-
-  const wait = () => {
-    if (app.client) {
-      init(app.client);
-    } else {
-      setTimeout(wait, 100);
-    }
-  };
-
-  wait();
-  app.lifecycle.bootstrapped();
-});
-
-app.lifecycle.addStopListener(() => {
-  closeCRM();
-
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.close();
-  }
-
-  app.lifecycle.stopped();
+  app.lifecycle.addStopListener(() => {
+    closeCRM();
+    if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+    app.lifecycle.stopped();
+  });
 });
 
 window.addEventListener('beforeunload', () => {
   closeCRM();
-
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.close();
-  }
+  if (socket && socket.readyState === WebSocket.OPEN) socket.close();
 });
 </script>
+</body>
+</html>
