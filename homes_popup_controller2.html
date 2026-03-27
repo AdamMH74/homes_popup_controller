@@ -3,24 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Client App</title>
-  
-  <!-- Platform SDK - use the official CDN instead of local file for reliability -->
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
-  
-  <!-- Client App SDK - official stable version -->
+  <script src="purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
-
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background: #f8f8f8; }
-    #statusBox {
-      background: #f5f5f5;
-      padding: 15px;
-      border-radius: 5px;
-      max-width: 700px;
-      min-height: 400px;
-      font-family: monospace;
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #statusBox { 
+      background: #f5f5f5; 
+      padding: 15px; 
+      border-radius: 5px; 
+      max-width: 600px; 
     }
-    #statusBox p { margin: 6px 0; }
+    #statusBox p { margin: 5px 0; }
   </style>
 </head>
 <body>
@@ -30,17 +23,11 @@
   </div>
 
   <script>
-    const VERSION = '1.2.5';
+    const VERSION = '1.0.0';
 
-    function updateStatus(message, replaceLast = false) {
+    function updateStatus(message) {
       const statusBox = document.getElementById('statusBox');
-      if (!statusBox) {
-        console.log('[HOMES Client]', message);
-        return;
-      }
-      if (replaceLast && statusBox.lastChild) {
-        statusBox.lastChild.textContent = message;
-      } else {
+      if (statusBox) {
         const p = document.createElement('p');
         p.textContent = message;
         statusBox.appendChild(p);
@@ -48,7 +35,7 @@
       console.log('[HOMES Client]', message);
     }
 
-    // Get query parameters passed by Genesys Cloud
+    // Get query parameters passed from Genesys Cloud
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
@@ -56,73 +43,30 @@
         gc_region: params.get('gc_region'),
         gc_redirectUrl: params.get('gc_redirectUrl'),
         gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv'),
-        gcUsePopupAuth: params.get('gcUsePopupAuth')
+        gcTargetEnv: params.get('gcTargetEnv')
       };
     }
 
     const config = getQueryParams();
     updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
-    if (!config.gc_clientId || !config.gc_redirectUrl) {
-      updateStatus('ERROR: Missing gc_clientId or gc_redirectUrl', true);
-      return;
-    }
-
-    // Correct way to get the platform client after SDK script loads
-    let platformClient;
-    try {
-      platformClient = require('platformClient');   // This should now work with the CDN version
-    } catch (e) {
-      updateStatus('require() failed - falling back to window.platformClient', true);
-      platformClient = window.platformClient || window.purecloud?.platformClient;
-    }
-
-    if (!platformClient) {
-      updateStatus('❌ Failed to load Platform Client SDK', true);
-      return;
-    }
-
+    // Initialize Genesys Cloud Platform Client
+    const platformClient = require('platformClient');
     const client = platformClient.ApiClient.instance;
-    client.setEnvironment(config.gc_region || 'mypurecloud.com.au');
+    client.setEnvironment(config.gc_region);
     client.setPersistSettings(true, 'homesClient');
     updateStatus('Platform client initialized.');
 
-    // Client App SDK
-    const ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
-    if (!ClientApp) {
-      updateStatus('⚠️ Client App SDK not found', true);
-    }
-
+    // Initialize PureCloud Client App SDK
+    const ClientApp = window.purecloud.apps.ClientApp;
     const myClientApp = new ClientApp({
       gcHostOrigin: config.gcHostOrigin,
       gcTargetEnv: config.gcTargetEnv
     });
 
-    // Bootstrap listener
-    myClientApp.lifecycle.addBootstrapListener(async () => {
-      updateStatus(`Client App SDK bootstrapped (v${VERSION}).`, true);
+    myClientApp.lifecycle.addBootstrapListener(() => {
+      updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
       myClientApp.lifecycle.bootstrapped();
-
-      try {
-        updateStatus('Starting authentication...', true);
-        
-        await client.loginImplicitGrant(
-          config.gc_clientId,
-          config.gc_redirectUrl,
-          config.gcUsePopupAuth === 'true'
-        );
-
-        updateStatus('✅ Authentication successful.', true);
-
-        const usersApi = new platformClient.UsersApi();
-        const me = await usersApi.getUsersMe();
-        updateStatus(`Logged in as: ${me.name || 'N/A'}`, true);
-        updateStatus(`Email: ${me.email || 'N/A'}`, true);
-      } catch (err) {
-        console.error(err);
-        updateStatus(`❌ Error during auth/user fetch: ${err.message}`, true);
-      }
     });
 
     myClientApp.lifecycle.addStopListener(() => {
