@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <title>HOMES Client App</title>
   <script src="purecloud-platform-client-v2.min.js"></script>
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
     #statusBox {
@@ -27,12 +26,11 @@
   </div>
 
   <script>
-    const VERSION = '1.0.1'; // bumped version
+    const VERSION = '1.0.2';
 
     function updateStatus(message, isError = false) {
       const statusBox = document.getElementById('statusBox');
       if (!statusBox) return;
-      
       const p = document.createElement('p');
       p.textContent = message;
       if (isError) p.classList.add('error');
@@ -41,7 +39,6 @@
       console.log('[HOMES Client]', message);
     }
 
-    // Get query parameters from Genesys Cloud
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
@@ -56,76 +53,55 @@
     const config = getQueryParams();
     updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
-    // === Platform Client Setup (Browser-friendly) ===
-  function initClientApp() {
-  if (!window.purecloud || !window.purecloud.apps) {
-    updateStatus('⏳ Waiting for Client App SDK...');
-    setTimeout(initClientApp, 100);
-    return;
-  }
-
-  const ClientApp = window.purecloud.apps.ClientApp;
-
-  const myClientApp = new ClientApp({
-    gcHostOrigin: config.gcHostOrigin,
-    gcTargetEnv: config.gcTargetEnv
-  });
-
-  // 1️⃣ Bootstrap listener ensures SDK is ready
-  myClientApp.lifecycle.addBootstrapListener(() => {
-    updateStatus(`Client App SDK bootstrapped (v${VERSION})`);
-    myClientApp.lifecycle.bootstrapped();
-
-    // 2️⃣ Now authentication exists — safe to listen for tokenUpdate
-    if (myClientApp.authentication) {
-      myClientApp.authentication.on('tokenUpdate', async (token) => {
-        if (!token) return;
-        updateStatus('✅ Access token received');
-
-        const platformClient = require('platformClient');
-        const client = platformClient.ApiClient.instance;
-        client.setEnvironment(config.gc_region);
-        client.setPersistSettings(true, 'homesClient');
-        client.setAccessToken(token);
-
-        try {
-          const usersApi = new platformClient.UsersApi();
-          const me = await usersApi.getUsersMe();
-          updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
-
-          const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
-          updateStatus(`✅ Fetched ${response.entities.length} users`);
-          displayUsers(response.entities);
-        } catch (err) {
-          updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
-          console.error(err);
-        }
-      });
-      updateStatus('✅ tokenUpdate listener registered');
-    } else {
-      updateStatus('❌ Authentication not available', true);
+    function parseHashToken() {
+      const hash = window.location.hash.substring(1); // remove #
+      const params = new URLSearchParams(hash);
+      return params.get('access_token');
     }
-  });
 
-  // Optional: stop listener
-  myClientApp.lifecycle.addStopListener(() => {
-    updateStatus('Client App SDK stopped.');
-    myClientApp.lifecycle.stopped();
-  });
+    async function initClientApp() {
+      const platformClient = require('platformClient');
+      const client = platformClient.ApiClient.instance;
+      client.setEnvironment(config.gc_region);
+      client.setPersistSettings(true, 'homesClient');
 
-  updateStatus('Event listeners registered.');
-}
-function displayUsers(users) {
-  updateStatus(`✅ Retrieved ${users.length} user(s):`);
-  users.forEach(user => {
-    const name = user.name || 'N/A';
-    const email = user.email || 'N/A';
-    const title = user.title || '';
-    updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
-  });
-}
-// Start initialization
-initClientApp();
+      let token = parseHashToken();
+
+      if (!token) {
+        updateStatus('Redirecting to Genesys Cloud for login...');
+        const oauthUrl = `https://${config.gc_region}/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+        window.location.href = oauthUrl;
+        return;
+      }
+
+      updateStatus('✅ Access token retrieved from URL fragment');
+      client.setAccessToken(token);
+
+      try {
+        const usersApi = new platformClient.UsersApi();
+        const me = await usersApi.getUsersMe();
+        updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
+
+        const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
+        updateStatus(`✅ Fetched ${response.entities.length} users`);
+        displayUsers(response.entities);
+      } catch (err) {
+        updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
+        console.error(err);
+      }
+    }
+
+    function displayUsers(users) {
+      updateStatus(`✅ Retrieved ${users.length} user(s):`);
+      users.forEach(user => {
+        const name = user.name || 'N/A';
+        const email = user.email || 'N/A';
+        const title = user.title || '';
+        updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
+      });
+    }
+
+    initClientApp();
   </script>
 </body>
 </html>
