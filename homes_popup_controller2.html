@@ -25,31 +25,26 @@
     <p>Initializing...</p>
   </div>
 
-<script>
-const VERSION = '1.0.2';
+  <script>
+    const VERSION = '1.0.2';
 
-function updateStatus(message, isError = false) {
-  const statusBox = document.getElementById('statusBox');
-  if (!statusBox) return;
-  const p = document.createElement('p');
-  p.textContent = message;
-  if (isError) p.classList.add('error');
-  statusBox.appendChild(p);
-  statusBox.scrollTop = statusBox.scrollHeight;
-  console.log('[HOMES Client]', message);
-}
+    function updateStatus(message, isError = false) {
+      const statusBox = document.getElementById('statusBox');
+      if (!statusBox) return;
+      const p = document.createElement('p');
+      p.textContent = message;
+      if (isError) p.classList.add('error');
+      statusBox.appendChild(p);
+      statusBox.scrollTop = statusBox.scrollHeight;
+      console.log('[HOMES Client]', message);
+    }
 
-// Normalize for API calls (needs apps. prefix)
-function normalizeRegion(region) {
+    function normalizeRegion(region) {
   if (!region) return region;
-  if (!region.startsWith('apps.')) return 'apps.' + region;
+  if (!region.startsWith('apps.')) {
+    return 'login.' + region;
+  }
   return region;
-}
-
-// Normalize for OAuth login (login. host)
-function getOAuthHost(region) {
-  if (!region) return region;
-  return region.replace(/^apps\./, 'login.');
 }
 
 function getQueryParams() {
@@ -63,62 +58,62 @@ function getQueryParams() {
   };
 }
 
-const config = getQueryParams();
+    const config = getQueryParams();
 
-// Fix region for API calls
-const apiRegion = normalizeRegion(config.gc_region);
+// Fix the region to ensure OAuth works
+config.gc_region = normalizeRegion(config.gc_region);
 
 updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
-function parseHashToken() {
-  const hash = window.location.hash.substring(1); // remove #
-  const params = new URLSearchParams(hash);
-  return params.get('access_token');
-}
+    function parseHashToken() {
+      const hash = window.location.hash.substring(1); // remove #
+      const params = new URLSearchParams(hash);
+      return params.get('access_token');
+    }
 
-async function initClientApp() {
-  const platformClient = require('platformClient');
-  const client = platformClient.ApiClient.instance;
-  client.setEnvironment(apiRegion);
-  client.setPersistSettings(true, 'homesClient');
+    async function initClientApp() {
+      const platformClient = require('platformClient');
+      const client = platformClient.ApiClient.instance;
+      client.setEnvironment(config.gc_region);
+      client.setPersistSettings(true, 'homesClient');
 
-  let token = parseHashToken();
+      let token = parseHashToken();
 
-  if (!token) {
-    updateStatus('Redirecting to Genesys Cloud for login...');
-    const oauthUrl = `https://${getOAuthHost(config.gc_region)}/oauth/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-    window.location.href = oauthUrl;
-    return;
-  }
+      if (!token) {
+        updateStatus('Redirecting to Genesys Cloud for login...');
+        const oauthUrl = `https://${config.gc_region}/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+        window.location.href = oauthUrl;
+        return;
+      }
 
-  updateStatus('✅ Access token retrieved from URL fragment');
-  client.setAccessToken(token);
+      updateStatus('✅ Access token retrieved from URL fragment');
+      client.setAccessToken(token);
 
-  try {
-    const usersApi = new platformClient.UsersApi();
-    const me = await usersApi.getUsersMe();
-    updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
+      try {
+        const usersApi = new platformClient.UsersApi();
+        const me = await usersApi.getUsersMe();
+        updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
 
-    const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
-    updateStatus(`✅ Fetched ${response.entities.length} users`);
-    displayUsers(response.entities);
-  } catch (err) {
-    updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
-    console.error(err);
-  }
-}
+        const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
+        updateStatus(`✅ Fetched ${response.entities.length} users`);
+        displayUsers(response.entities);
+      } catch (err) {
+        updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
+        console.error(err);
+      }
+    }
 
-function displayUsers(users) {
-  updateStatus(`✅ Retrieved ${users.length} user(s):`);
-  users.forEach(user => {
-    const name = user.name || 'N/A';
-    const email = user.email || 'N/A';
-    const title = user.title || '';
-    updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
-  });
-}
+    function displayUsers(users) {
+      updateStatus(`✅ Retrieved ${users.length} user(s):`);
+      users.forEach(user => {
+        const name = user.name || 'N/A';
+        const email = user.email || 'N/A';
+        const title = user.title || '';
+        updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
+      });
+    }
 
-initClientApp();
-</script>
+    initClientApp();
+  </script>
 </body>
 </html>
