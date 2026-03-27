@@ -39,12 +39,10 @@
       console.log('[HOMES Client]', message);
     }
 
-    function normalizeRegion(region) {
+    function getOAuthHost(region) {
   if (!region) return region;
-  if (!region.startsWith('apps.')) {
-    return 'apps.' + region;
-  }
-  return region;
+  // Remove any "apps." prefix
+  return region.replace(/^apps\./, 'login.');
 }
 
 function getQueryParams() {
@@ -81,8 +79,8 @@ updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
       if (!token) {
         updateStatus('Redirecting to Genesys Cloud for login...');
-        const oauthUrl = `https://${config.gc_region}/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-        window.location.href = oauthUrl;
+        const oauthUrl = `https://${getOAuthHost(config.gc_region)}/oauth/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+window.location.href = oauthUrl;
         return;
       }
 
