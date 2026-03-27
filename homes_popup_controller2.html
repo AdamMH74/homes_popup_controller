@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Client App</title>
-  <script src="purecloud-platform-client-v2.min.js"></script>
+  <!-- Load Platform Client SDK and Client App SDK from CDN -->
+  <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
@@ -27,15 +28,14 @@
   </div>
 
   <script>
-    const VERSION = '1.0.1'; // bumped version
+    const VERSION = '1.0.2';
 
     function updateStatus(message, isError = false) {
       const statusBox = document.getElementById('statusBox');
-      if (!statusBox) return;
-      
       const p = document.createElement('p');
       p.textContent = message;
       if (isError) p.classList.add('error');
+      else if (message.includes('✅')) p.classList.add('success');
       statusBox.appendChild(p);
       statusBox.scrollTop = statusBox.scrollHeight;
       console.log('[HOMES Client]', message);
@@ -46,7 +46,7 @@
       const params = new URLSearchParams(window.location.search);
       return {
         gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
+        gc_region: params.get('gc_region') || 'mypurecloud.com',
         gc_redirectUrl: params.get('gc_redirectUrl'),
         gcHostOrigin: params.get('gcHostOrigin'),
         gcTargetEnv: params.get('gcTargetEnv')
@@ -57,12 +57,11 @@
     updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
     // === Platform Client Setup (Browser-friendly) ===
-    // Initialize Genesys Cloud Platform Client
-    const platformClient = require('platformClient');
+    const platformClient = window.platformClient; // ✅ Browser global, no require()
     const client = platformClient.ApiClient.instance;
     client.setEnvironment(config.gc_region);
     client.setPersistSettings(true, 'homesClient');
-    updateStatus('Platform client initialized.');
+    updateStatus('Platform Client initialized.');
 
     // === Client App SDK Setup ===
     const ClientApp = window.purecloud.apps.ClientApp;
@@ -71,10 +70,8 @@
       gcTargetEnv: config.gcTargetEnv
     });
 
-    // Create Users API instance once
     const usersApi = new platformClient.UsersApi();
 
-    // Helper to display user list nicely
     function displayUsers(users) {
       updateStatus(`✅ Retrieved ${users.length} user(s):`);
       users.forEach(user => {
@@ -85,43 +82,33 @@
       });
     }
 
-    // === Bootstrap Listener - where we do API calls ===
+    // === Bootstrap Listener ===
     myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
+      updateStatus(`Client App SDK bootstrapped (v${VERSION})`);
 
-      // 1. Get Current User (Me)
+      // Get OAuth token from Client App SDK
+      const token = myClientApp.getToken();
+      if (token) {
+        client.setAccessToken(token);
+        updateStatus('✅ OAuth token set for Platform API');
+      } else {
+        updateStatus('⚠️ No OAuth token available. API calls may fail.', true);
+      }
+
+      // Get current user
       usersApi.getUsersMe({ expand: ['presence', 'routingStatus'] })
-        .then(me => {
-          updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`, false);
-          console.log('Current user full object:', me);
+        .then(me => updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`))
+        .catch(err => updateStatus('⚠️ Ignored: Could not fetch current user', true));
+
+      // Get list of users
+      usersApi.getUsers({ pageSize: 25, pageNumber: 1 })
+        .then(resp => {
+          updateStatus(`✅ Fetched ${resp.entities?.length || 0} users`);
+          if (resp.entities?.length > 0) displayUsers(resp.entities);
         })
-        .catch(err => {
-          updateStatus(`❌ Failed to get current user: ${err.message || err}`, true);
-          console.error(err);
-        });
+        .catch(err => updateStatus('⚠️ Ignored: Could not fetch users', true));
 
-      // 2. Get List of Users (with pagination example)
-      const opts = {
-        pageSize: 25,
-        pageNumber: 1,
-        // expand: ['presence', 'skills']   // uncomment if you need more details
-      };
-
-      usersApi.getUsers(opts)
-        .then(response => {
-          updateStatus(`✅ Fetched page ${response.pageNumber} of users (total: ${response.total || 'unknown'})`);
-          if (response.entities && response.entities.length > 0) {
-            displayUsers(response.entities);
-          } else {
-            updateStatus('No users returned on this page.');
-          }
-        })
-        .catch(err => {
-          updateStatus(`❌ Failed to get users: ${err.message || err}`, true);
-          console.error('GetUsers error:', err);
-        });
-
-      // Tell Genesys Cloud we're ready
+      // Signal Genesys Cloud that bootstrapping is complete
       myClientApp.lifecycle.bootstrapped();
       updateStatus('Lifecycle: bootstrapped() called successfully.');
     });
