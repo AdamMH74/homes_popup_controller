@@ -7,11 +7,11 @@
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
-    #statusBox { 
-      background: #f5f5f5; 
-      padding: 15px; 
-      border-radius: 5px; 
-      max-width: 600px; 
+    #statusBox {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 5px;
+      max-width: 600px;
     }
     #statusBox p { margin: 5px 0; }
   </style>
@@ -24,7 +24,6 @@
 
   <script>
     const VERSION = '1.0.0';
-
     function updateStatus(message) {
       const statusBox = document.getElementById('statusBox');
       if (statusBox) {
@@ -51,7 +50,18 @@
     updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
     // Initialize Genesys Cloud Platform Client
-    const platformClient = require('platformClient');
+    let platformClient;
+    try {
+      platformClient = require('platformClient');
+    } catch (e) {
+      platformClient = window.platformClient;
+    }
+
+    if (!platformClient) {
+      updateStatus('ERROR: Could not load platformClient');
+      return;
+    }
+
     const client = platformClient.ApiClient.instance;
     client.setEnvironment(config.gc_region);
     client.setPersistSettings(true, 'homesClient');
@@ -64,9 +74,33 @@
       gcTargetEnv: config.gcTargetEnv
     });
 
-    myClientApp.lifecycle.addBootstrapListener(() => {
+    myClientApp.lifecycle.addBootstrapListener(async () => {
       updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
       myClientApp.lifecycle.bootstrapped();
+
+      try {
+        updateStatus('Authenticating...');
+
+        await client.loginImplicitGrant(
+          config.gc_clientId,
+          config.gc_redirectUrl,
+          false   // change to true if you want popup auth
+        );
+
+        updateStatus('Authentication successful.');
+
+        // === NEW: Fetch and show current user ===
+        const usersApi = new platformClient.UsersApi();
+        const me = await usersApi.getUsersMe();
+
+        updateStatus(`Logged in as: ${me.name}`);
+        updateStatus(`Email: ${me.email}`);
+        updateStatus(`User ID: ${me.id}`);
+
+      } catch (err) {
+        updateStatus(`Error: ${err.message}`);
+        console.error(err);
+      }
     });
 
     myClientApp.lifecycle.addStopListener(() => {
