@@ -23,7 +23,7 @@
   </div>
 
   <script>
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
 
     function updateStatus(message) {
       const statusBox = document.getElementById('statusBox');
@@ -90,16 +90,20 @@
     updateStatus('Platform client initialized.');
 
     // -------------------------------
-    // 4️⃣ Authenticate and fetch current user
+    // 4️⃣ Authenticate via popup-safe login
     // -------------------------------
     const usersApi = new platformClient.UsersApi();
 
     async function fetchCurrentUser() {
       try {
-        updateStatus('Authenticating via implicit grant...');
-        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+        updateStatus('Opening login in popup for safe authentication...');
+        // This opens a separate popup window, safe for Microsoft SSO
+        await client.loginImplicitGrant(
+          config.gc_clientId,
+          config.gc_redirectUrl,
+          { state: 'homesClientPopup', width: 600, height: 600 }
+        );
         updateStatus('Authentication successful.');
-
         const user = await usersApi.getUsersMe();
         updateStatus(`Logged in as: ${user.name} (email: ${user.email})`);
         return user;
