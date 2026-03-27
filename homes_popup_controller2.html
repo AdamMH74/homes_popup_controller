@@ -82,7 +82,7 @@
     // 3️⃣ Initialize Platform Client
     // -------------------------------
     //const platformClient = require('platformClient');
-    const client = platformClient.ApiClient.instance;
+    const client = window.platformClient.ApiClient.instance;
     client.setEnvironment(config.gc_region);
     client.setPersistSettings(true, 'homesClient');
 
