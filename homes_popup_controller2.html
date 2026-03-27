@@ -23,7 +23,7 @@
   </div>
 
   <script>
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
 
     function updateStatus(message) {
       const statusBox = document.getElementById('statusBox');
@@ -36,7 +36,7 @@
     }
 
     // -------------------------------
-    // 1️⃣ Query parameter handling (from old script)
+    // 1️⃣ Query parameter handling
     // -------------------------------
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
@@ -54,9 +54,7 @@
     function initialiseAndStorePluginConfiguration() {
       const params = getQueryParams();
       for (const [key, value] of Object.entries(params)) {
-        if (value !== null) {
-          sessionStorage.setItem(key, value);
-        }
+        if (value !== null) sessionStorage.setItem(key, value);
       }
       updateStatus('Stored query parameters in sessionStorage.');
     }
@@ -76,7 +74,7 @@
     }
 
     // -------------------------------
-    // 2️⃣ Initialize config first
+    // 2️⃣ Initialize config
     // -------------------------------
     initialiseAndStorePluginConfiguration();
     const config = getStoredConfig();
@@ -92,7 +90,27 @@
     updateStatus('Platform client initialized.');
 
     // -------------------------------
-    // 4️⃣ Initialize PureCloud Client App SDK
+    // 4️⃣ Authenticate and fetch current user
+    // -------------------------------
+    const usersApi = new platformClient.UsersApi();
+
+    async function fetchCurrentUser() {
+      try {
+        updateStatus('Authenticating via implicit grant...');
+        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+        updateStatus('Authentication successful.');
+
+        const user = await usersApi.getUsersMe();
+        updateStatus(`Logged in as: ${user.name} (email: ${user.email})`);
+        return user;
+      } catch (err) {
+        console.error('[HOMES Client] User fetch error:', err);
+        updateStatus(`Error fetching user: ${err.message}`);
+      }
+    }
+
+    // -------------------------------
+    // 5️⃣ Initialize PureCloud Client App SDK
     // -------------------------------
     const ClientApp = window.purecloud.apps.ClientApp;
     const myClientApp = new ClientApp({
@@ -103,6 +121,8 @@
     myClientApp.lifecycle.addBootstrapListener(() => {
       updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
       myClientApp.lifecycle.bootstrapped();
+      // Fetch current user after bootstrap
+      fetchCurrentUser();
     });
 
     myClientApp.lifecycle.addStopListener(() => {
