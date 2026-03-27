@@ -4,20 +4,21 @@
   <meta charset="UTF-8">
   <title>HOMES Client App</title>
   
-  <!-- Platform SDK - local file (best for reliability) -->
-  <script src="purecloud-platform-client-v2.min.js"></script>
+  <!-- Platform SDK - use the official CDN instead of local file for reliability -->
+  <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
   
-  <!-- Client App SDK - official Genesys CDN (specific stable version) -->
+  <!-- Client App SDK - official stable version -->
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
 
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f8f8f8; }
     #statusBox {
       background: #f5f5f5;
       padding: 15px;
       border-radius: 5px;
       max-width: 700px;
-      min-height: 300px;
+      min-height: 400px;
+      font-family: monospace;
     }
     #statusBox p { margin: 6px 0; }
   </style>
@@ -29,12 +30,14 @@
   </div>
 
   <script>
-    const VERSION = '1.2.0';
+    const VERSION = '1.2.5';
 
     function updateStatus(message, replaceLast = false) {
       const statusBox = document.getElementById('statusBox');
-      if (!statusBox) return;
-      
+      if (!statusBox) {
+        console.log('[HOMES Client]', message);
+        return;
+      }
       if (replaceLast && statusBox.lastChild) {
         statusBox.lastChild.textContent = message;
       } else {
@@ -45,7 +48,7 @@
       console.log('[HOMES Client]', message);
     }
 
-    // Get query parameters from Genesys Cloud
+    // Get query parameters passed by Genesys Cloud
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
@@ -66,40 +69,59 @@
       return;
     }
 
-    // Initialize Platform Client (correct way)
-    const platformClient = require('platformClient');
+    // Correct way to get the platform client after SDK script loads
+    let platformClient;
+    try {
+      platformClient = require('platformClient');   // This should now work with the CDN version
+    } catch (e) {
+      updateStatus('require() failed - falling back to window.platformClient', true);
+      platformClient = window.platformClient || window.purecloud?.platformClient;
+    }
+
+    if (!platformClient) {
+      updateStatus('❌ Failed to load Platform Client SDK', true);
+      return;
+    }
+
     const client = platformClient.ApiClient.instance;
     client.setEnvironment(config.gc_region || 'mypurecloud.com.au');
     client.setPersistSettings(true, 'homesClient');
     updateStatus('Platform client initialized.');
 
-    // Initialize Client App SDK
+    // Client App SDK
     const ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
+    if (!ClientApp) {
+      updateStatus('⚠️ Client App SDK not found', true);
+    }
+
     const myClientApp = new ClientApp({
       gcHostOrigin: config.gcHostOrigin,
       gcTargetEnv: config.gcTargetEnv
     });
 
-    // Lifecycle
+    // Bootstrap listener
     myClientApp.lifecycle.addBootstrapListener(async () => {
       updateStatus(`Client App SDK bootstrapped (v${VERSION}).`, true);
       myClientApp.lifecycle.bootstrapped();
 
       try {
-        updateStatus('Authenticating...', true);
+        updateStatus('Starting authentication...', true);
+        
         await client.loginImplicitGrant(
           config.gc_clientId,
           config.gc_redirectUrl,
           config.gcUsePopupAuth === 'true'
         );
-        updateStatus('Authentication successful.', true);
+
+        updateStatus('✅ Authentication successful.', true);
 
         const usersApi = new platformClient.UsersApi();
         const me = await usersApi.getUsersMe();
-        updateStatus(`Logged in as: ${me.name}`, true);
+        updateStatus(`Logged in as: ${me.name || 'N/A'}`, true);
+        updateStatus(`Email: ${me.email || 'N/A'}`, true);
       } catch (err) {
-        updateStatus(`Auth error: ${err.message}`, true);
         console.error(err);
+        updateStatus(`❌ Error during auth/user fetch: ${err.message}`, true);
       }
     });
 
