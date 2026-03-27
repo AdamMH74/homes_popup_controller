@@ -57,46 +57,74 @@
     updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
     // === Platform Client Setup (Browser-friendly) ===
+  function initClientApp() {
+  if (!window.purecloud || !window.purecloud.apps) {
+    updateStatus('⏳ Waiting for Client App SDK...');
+    setTimeout(initClientApp, 100);
+    return;
+  }
+
+  updateStatus('✅ Client App SDK loaded');
+
+  const ClientApp = window.purecloud.apps.ClientApp;
+
+  const myClientApp = new ClientApp({
+    gcHostOrigin: config.gcHostOrigin,
+    gcTargetEnv: config.gcTargetEnv
+  });
+
+  // === Bootstrap Listener ===
   myClientApp.lifecycle.addBootstrapListener(() => {
-  updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
+    updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
 
-  myClientApp.authentication.getAccessToken()
-    .then(token => {
-      updateStatus('✅ Access token acquired');
+    myClientApp.authentication.getAccessToken()
+      .then(token => {
+        updateStatus('✅ Access token acquired');
 
-      const platformClient = require('platformClient');
-      const client = platformClient.ApiClient.instance;
-      client.setEnvironment(config.gc_region);
-      client.setAccessToken(token);
+        const platformClient = require('platformClient');
+        const client = platformClient.ApiClient.instance;
+        client.setEnvironment(config.gc_region);
+        client.setAccessToken(token);
 
-      const usersApi = new platformClient.UsersApi();
+        const usersApi = new platformClient.UsersApi();
 
-      return usersApi.getUsersMe({ expand: ['presence', 'routingStatus'] })
-        .then(me => {
-          updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
-          console.log('Current user full object:', me);
+        return usersApi.getUsersMe()
+          .then(me => {
+            updateStatus(`✅ Current user: ${me.name}`);
+            return usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
+          })
+          .then(response => {
+            if (response.entities && response.entities.length > 0) {
+              displayUsers(response.entities);
+            }
+          });
+      })
+      .catch(err => {
+        updateStatus(`❌ ${err.message || err}`, true);
+      })
+      .finally(() => {
+        myClientApp.lifecycle.bootstrapped();
+      });
+  });
 
-          return usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
-        })
-        .then(response => {
-          updateStatus(`✅ Fetched page ${response.pageNumber} of users`);
+  myClientApp.lifecycle.addStopListener(() => {
+    updateStatus('Client App SDK stopped.');
+    myClientApp.lifecycle.stopped();
+  });
 
-          if (response.entities && response.entities.length > 0) {
-            displayUsers(response.entities);
-          } else {
-            updateStatus('No users returned.');
-          }
-        });
-    })
-    .catch(err => {
-      updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
-      console.error(err);
-    })
-    .finally(() => {
-      myClientApp.lifecycle.bootstrapped();
-      updateStatus('Lifecycle: bootstrapped() called.');
-    });
-});
+  updateStatus('Event listeners registered.');
+}
+function displayUsers(users) {
+  updateStatus(`✅ Retrieved ${users.length} user(s):`);
+  users.forEach(user => {
+    const name = user.name || 'N/A';
+    const email = user.email || 'N/A';
+    const title = user.title || '';
+    updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
+  });
+}
+// Start initialization
+initClientApp();
   </script>
 </body>
 </html>
