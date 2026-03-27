@@ -5,12 +5,37 @@
   <title>HOMES Client App</title>
   <script src="purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #statusBox { 
+      background: #f5f5f5; 
+      padding: 15px; 
+      border-radius: 5px; 
+      max-width: 600px; 
+    }
+    #statusBox p { margin: 5px 0; }
+  </style>
 </head>
 <body>
-  <script>
-    // --- Helper functions ---
-    function log(...args) { console.log('[HOMES Client]', ...args); }
+  <h2>HOMES Client App Status</h2>
+  <div id="statusBox">
+    <p>Initializing...</p>
+  </div>
 
+  <script>
+    const VERSION = '1.0.0';
+
+    function updateStatus(message) {
+      const statusBox = document.getElementById('statusBox');
+      if (statusBox) {
+        const p = document.createElement('p');
+        p.textContent = message;
+        statusBox.appendChild(p);
+      }
+      console.log('[HOMES Client]', message);
+    }
+
+    // Get query parameters passed from Genesys Cloud
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
@@ -22,17 +47,17 @@
       };
     }
 
-    // --- Store config ---
     const config = getQueryParams();
-    log('Loaded config:', config);
+    updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
-    // --- Initialize Genesys Cloud API client ---
+    // Initialize Genesys Cloud Platform Client
     const platformClient = require('platformClient');
     const client = platformClient.ApiClient.instance;
     client.setEnvironment(config.gc_region);
     client.setPersistSettings(true, 'homesClient');
+    updateStatus('Platform client initialized.');
 
-    // --- Initialize Client App SDK ---
+    // Initialize PureCloud Client App SDK
     const ClientApp = window.purecloud.apps.ClientApp;
     const myClientApp = new ClientApp({
       gcHostOrigin: config.gcHostOrigin,
@@ -40,12 +65,12 @@
     });
 
     myClientApp.lifecycle.addBootstrapListener(() => {
-      log('Client App bootstrapped.');
+      updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
       myClientApp.lifecycle.bootstrapped();
     });
 
     myClientApp.lifecycle.addStopListener(() => {
-      log('Client App stopped.');
+      updateStatus('Client App SDK stopped.');
       myClientApp.lifecycle.stopped();
     });
   </script>
