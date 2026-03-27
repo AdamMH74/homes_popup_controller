@@ -64,8 +64,6 @@
     return;
   }
 
-  updateStatus('✅ Client App SDK loaded');
-
   const ClientApp = window.purecloud.apps.ClientApp;
 
   const myClientApp = new ClientApp({
@@ -73,34 +71,47 @@
     gcTargetEnv: config.gcTargetEnv
   });
 
-  // === Bootstrap Listener ===
-  // Wait until authentication API is ready
-myClientApp.authentication.on('tokenUpdate', async (token) => {
-  if (!token) return;
-  updateStatus('✅ Access token received');
-
-  const platformClient = require('platformClient');
-  const client = platformClient.ApiClient.instance;
-  client.setEnvironment(config.gc_region);
-  client.setPersistSettings(true, 'homesClient');
-  client.setAccessToken(token);
-
-  try {
-    const usersApi = new platformClient.UsersApi();
-    const me = await usersApi.getUsersMe();
-    updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
-
-    const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
-    updateStatus(`✅ Fetched ${response.entities.length} users`);
-    displayUsers(response.entities);
-  } catch (err) {
-    updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
-    console.error(err);
-  } finally {
+  // 1️⃣ Bootstrap listener ensures SDK is ready
+  myClientApp.lifecycle.addBootstrapListener(() => {
+    updateStatus(`Client App SDK bootstrapped (v${VERSION})`);
     myClientApp.lifecycle.bootstrapped();
-    updateStatus('Lifecycle: bootstrapped() called.');
-  }
-});
+
+    // 2️⃣ Now authentication exists — safe to listen for tokenUpdate
+    if (myClientApp.authentication) {
+      myClientApp.authentication.on('tokenUpdate', async (token) => {
+        if (!token) return;
+        updateStatus('✅ Access token received');
+
+        const platformClient = require('platformClient');
+        const client = platformClient.ApiClient.instance;
+        client.setEnvironment(config.gc_region);
+        client.setPersistSettings(true, 'homesClient');
+        client.setAccessToken(token);
+
+        try {
+          const usersApi = new platformClient.UsersApi();
+          const me = await usersApi.getUsersMe();
+          updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
+
+          const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
+          updateStatus(`✅ Fetched ${response.entities.length} users`);
+          displayUsers(response.entities);
+        } catch (err) {
+          updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
+          console.error(err);
+        }
+      });
+      updateStatus('✅ tokenUpdate listener registered');
+    } else {
+      updateStatus('❌ Authentication not available', true);
+    }
+  });
+
+  // Optional: stop listener
+  myClientApp.lifecycle.addStopListener(() => {
+    updateStatus('Client App SDK stopped.');
+    myClientApp.lifecycle.stopped();
+  });
 
   updateStatus('Event listeners registered.');
 }
