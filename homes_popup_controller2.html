@@ -57,44 +57,13 @@
     updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
     // === Platform Client Setup (Browser-friendly) ===
-    // Initialize Genesys Cloud Platform Client
-    const platformClient = require('platformClient');
-    const client = platformClient.ApiClient.instance;
-    client.setEnvironment(config.gc_region);
-    client.setPersistSettings(true, 'homesClient');
-    updateStatus('Platform client initialized.');
-
-    // === Client App SDK Setup ===
-    const ClientApp = window.purecloud.apps.ClientApp;
-    const myClientApp = new ClientApp({
-      gcHostOrigin: config.gcHostOrigin,
-      gcTargetEnv: config.gcTargetEnv
-    });
-
-    // Create Users API instance once
-    const usersApi = new platformClient.UsersApi();
-
-    // Helper to display user list nicely
-    function displayUsers(users) {
-      updateStatus(`✅ Retrieved ${users.length} user(s):`);
-      users.forEach(user => {
-        const name = user.name || 'N/A';
-        const email = user.email || 'N/A';
-        const title = user.title || '';
-        updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
-      });
-    }
-
-    // === Bootstrap Listener - where we do API calls ===
-    myClientApp.lifecycle.addBootstrapListener(() => {
+  myClientApp.lifecycle.addBootstrapListener(() => {
   updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
 
-  // Wait until Genesys provides the access token
   myClientApp.authentication.getAccessToken()
     .then(token => {
       updateStatus('✅ Access token acquired');
 
-      // Initialize platform client AFTER token is ready
       const platformClient = require('platformClient');
       const client = platformClient.ApiClient.instance;
       client.setEnvironment(config.gc_region);
@@ -102,19 +71,17 @@
 
       const usersApi = new platformClient.UsersApi();
 
-      // --- Get current user ---
       return usersApi.getUsersMe({ expand: ['presence', 'routingStatus'] })
         .then(me => {
           updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
           console.log('Current user full object:', me);
 
-          // --- Then get users list ---
           return usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
         })
         .then(response => {
           updateStatus(`✅ Fetched page ${response.pageNumber} of users`);
 
-          if (response.entities?.length) {
+          if (response.entities && response.entities.length > 0) {
             displayUsers(response.entities);
           } else {
             updateStatus('No users returned.');
@@ -126,28 +93,10 @@
       console.error(err);
     })
     .finally(() => {
-      // Tell Genesys Cloud we're ready
       myClientApp.lifecycle.bootstrapped();
       updateStatus('Lifecycle: bootstrapped() called.');
     });
 });
-        .catch(err => {
-          updateStatus(`❌ Failed to get users: ${err.message || err}`, true);
-          console.error('GetUsers error:', err);
-        });
-
-      // Tell Genesys Cloud we're ready
-      myClientApp.lifecycle.bootstrapped();
-      updateStatus('Lifecycle: bootstrapped() called successfully.');
-    });
-
-    // Stop listener
-    myClientApp.lifecycle.addStopListener(() => {
-      updateStatus('Client App SDK stopped.');
-      myClientApp.lifecycle.stopped();
-    });
-
-    updateStatus('Event listeners registered. Waiting for Genesys Cloud bootstrap...');
   </script>
 </body>
 </html>
