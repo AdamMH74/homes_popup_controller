@@ -39,31 +39,36 @@
       console.log('[HOMES Client]', message);
     }
 
-    function normalizeRegion(region) {
-  if (!region) return region;
-  if (!region.startsWith('apps.')) {
-    return 'login.' + region;
-  }
-  return region;
-}
+    // Parse URL query parameters
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        gc_clientId: params.get('gc_clientId'),
+        gc_region: params.get('gc_region'),
+        gc_redirectUrl: params.get('gc_redirectUrl'),
+        gcHostOrigin: params.get('gcHostOrigin'),
+        gcTargetEnv: params.get('gcTargetEnv')
+      };
+    }
 
-function getQueryParams() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    gc_clientId: params.get('gc_clientId'),
-    gc_region: params.get('gc_region'),
-    gc_redirectUrl: params.get('gc_redirectUrl'),
-    gcHostOrigin: params.get('gcHostOrigin'),
-    gcTargetEnv: params.get('gcTargetEnv')
-  };
-}
+    // Return OAuth login host
+    function getOAuthHost(region) {
+      if (!region) return region;
+      return 'login.' + region.replace(/^apps\./, '');
+    }
+
+    // Return API host
+    function getApiHost(region) {
+      if (!region) return region;
+      if (!region.startsWith('apps.')) return 'apps.' + region;
+      return region;
+    }
 
     const config = getQueryParams();
+    const oauthHost = getOAuthHost(config.gc_region);
+    const apiHost   = getApiHost(config.gc_region);
 
-// Fix the region to ensure OAuth works
-config.gc_region = normalizeRegion(config.gc_region);
-
-updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
+    updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
     function parseHashToken() {
       const hash = window.location.hash.substring(1); // remove #
@@ -74,15 +79,15 @@ updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
     async function initClientApp() {
       const platformClient = require('platformClient');
       const client = platformClient.ApiClient.instance;
-      client.setEnvironment(config.gc_region);
+      client.setEnvironment(apiHost);
       client.setPersistSettings(true, 'homesClient');
 
-      let token = parseHashToken();
+      const token = parseHashToken();
 
       if (!token) {
         updateStatus('Redirecting to Genesys Cloud for login...');
-        const oauthUrl = `https://${config.gc_region}/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-        window.location.href = oauthUrl;
+        const oauthUrl = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+        window.location.href = oauthUrl; // full-page redirect
         return;
       }
 
