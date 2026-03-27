@@ -2,55 +2,52 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Genesys Cloud SDK Client Test</title>
-    <script src="purecloud-platform-client-v2.min.js"></script>
-	<style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    #status { margin-top: 20px; }
-  </style>
+  <title>HOMES Client App</title>
+  <script src="purecloud-platform-client-v2.min.js"></script>
+  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
 </head>
 <body>
-  <h1>Genesys Cloud SDK Client Test</h1>
-  <div id="status">Initializing...</div>
-
   <script>
-    const platformClient = require('platformClient'); 
-const client = platformClient.ApiClient.instance;
-const notificationsApi = new platformClient.NotificationsApi();
-const conversationsApi = new platformClient.ConversationsApi();
-const usersApi = new platformClient.UsersApi();
+    // --- Helper functions ---
+    function log(...args) { console.log('[HOMES Client]', ...args); }
 
-    // Configuration - replace with your own values or get from URL query
-    const CONFIG = {
-      clientId: '06dbaf40-d1b2-44d5-bcb2-86a0f9dc99d2',
-      redirectUri: window.location.href, // Current page
-      environment: 'mypurecloud.com' // or e.g., mypurecloud.ie, mypurecloud.au
-    };
-
-    const statusDiv = document.getElementById('status');
-    function updateStatus(msg) {
-      console.log('[SDK Test]', msg);
-      statusDiv.textContent = msg;
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        gc_clientId: params.get('gc_clientId'),
+        gc_region: params.get('gc_region'),
+        gc_redirectUrl: params.get('gc_redirectUrl'),
+        gcHostOrigin: params.get('gcHostOrigin'),
+        gcTargetEnv: params.get('gcTargetEnv')
+      };
     }
 
-    async function init() {
-      try {
-        updateStatus('Setting environment...');
-        client.setEnvironment(CONFIG.environment);
+    // --- Store config ---
+    const config = getQueryParams();
+    log('Loaded config:', config);
 
-        updateStatus('Logging in via implicit grant...');
-        await client.loginImplicitGrant(CONFIG.clientId, CONFIG.redirectUri);
+    // --- Initialize Genesys Cloud API client ---
+    const platformClient = require('platformClient');
+    const client = platformClient.ApiClient.instance;
+    client.setEnvironment(config.gc_region);
+    client.setPersistSettings(true, 'homesClient');
 
-        updateStatus('Logged in successfully! Fetching user info...');
-        const me = await usersApi.getUsersMe();
-        updateStatus(`Hello, ${me.name} (${me.email})`);
-      } catch (err) {
-        console.error(err);
-        updateStatus(`Error: ${err.message}`);
-      }
-    }
+    // --- Initialize Client App SDK ---
+    const ClientApp = window.purecloud.apps.ClientApp;
+    const myClientApp = new ClientApp({
+      gcHostOrigin: config.gcHostOrigin,
+      gcTargetEnv: config.gcTargetEnv
+    });
 
-    init();
+    myClientApp.lifecycle.addBootstrapListener(() => {
+      log('Client App bootstrapped.');
+      myClientApp.lifecycle.bootstrapped();
+    });
+
+    myClientApp.lifecycle.addStopListener(() => {
+      log('Client App stopped.');
+      myClientApp.lifecycle.stopped();
+    });
   </script>
 </body>
 </html>
