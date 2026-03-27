@@ -2,238 +2,131 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>HOMES Popup Controller</title>
-  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
+  <title>HOMES Client App</title>
+  <script src="purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
-    .info-container {
-      background-color: #f5f5f5;
-      padding: 20px;
-      border-radius: 5px;
-      margin-bottom: 20px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #statusBox { 
+      background: #f5f5f5; 
+      padding: 15px; 
+      border-radius: 5px; 
+      max-width: 600px; 
     }
-    .info-container p {
-      margin: 5px 0;
-    }
+    #statusBox p { margin: 5px 0; }
   </style>
 </head>
 <body>
-  <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller...</p>
+  <h2>HOMES Client App Status</h2>
+  <div id="statusBox">
+    <p>Initializing...</p>
   </div>
 
-<script>
-const VERSION = '1.0.4';
-const blockedAgentIds = [
-  'a45dcb75-1121-4fb0-b956-3fb9437e539e' // Pete Matthews
-];
+  <script>
+    const VERSION = '1.2.0';
 
-let config = null;
-let crmTab = null;
+    function updateStatus(message) {
+      const statusBox = document.getElementById('statusBox');
+      const p = document.createElement('p');
+      p.textContent = message;
+      statusBox.appendChild(p);
+      console.log('[HOMES Client]', message);
+    }
 
-function updateStatus(message) {
-  const statusBox = document.getElementById('statusBox');
-  const p = document.createElement('p');
-  p.textContent = message;
-  statusBox.appendChild(p);
-  console.log('[HOMES Popup Controller]', message);
-}
+    // -------------------------------
+    // 1️⃣ Query parameter handling
+    // -------------------------------
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        gc_clientId: params.get('gc_clientId'),
+        gc_region: params.get('gc_region'),
+        gc_redirectUrl: params.get('gc_redirectUrl'),
+        gcUsePopupAuth: params.get('gcUsePopupAuth'),
+        debug: params.get('debug'),
+        gcHostOrigin: params.get('gcHostOrigin'),
+        gcTargetEnv: params.get('gcTargetEnv')
+      };
+    }
 
-function log(...args) {
-  console.log('[HOMES Popup Controller]', ...args);
-}
+    function initialiseAndStorePluginConfiguration() {
+      const params = getQueryParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== null) sessionStorage.setItem(key, value);
+      }
+      updateStatus('Stored query parameters in sessionStorage.');
+    }
 
-// ------------------ Query Params ------------------
-function getQueryParams() {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    gc_clientId: params.get('gc_clientId'),
-    gc_region: params.get('gc_region'),
-    gc_redirectUrl: params.get('gc_redirectUrl'),
-    gcUsePopupAuth: params.get('gcUsePopupAuth'),
-    debug: params.get('debug'),
-    gcHostOrigin: params.get('gcHostOrigin'),
-    gcTargetEnv: params.get('gcTargetEnv')
-  };
-}
+    function getStoredConfig() {
+      const config = {
+        gc_clientId: sessionStorage.getItem('gc_clientId'),
+        gc_region: sessionStorage.getItem('gc_region'),
+        gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
+        gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
+        debug: sessionStorage.getItem('debug'),
+        gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
+        gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
+      };
+      updateStatus('Retrieved configuration from sessionStorage.');
+      return config;
+    }
 
-function initialiseAndStorePluginConfiguration() {
-  const params = getQueryParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== null) sessionStorage.setItem(key, value);
-  }
-  log('Stored query parameters in sessionStorage:', params);
-}
+    // -------------------------------
+    // 2️⃣ Initialize config
+    // -------------------------------
+    initialiseAndStorePluginConfiguration();
+    const config = getStoredConfig();
+    updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
-function getStoredConfig() {
-  return {
-    gc_clientId: sessionStorage.getItem('gc_clientId'),
-    gc_region: sessionStorage.getItem('gc_region'),
-    gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
-    gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
-    debug: sessionStorage.getItem('debug'),
-    gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
-    gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
-  };
-}
-
-// ------------------ Popup-safe login ------------------
-async function popupSafeLogin(client, clientId, redirectUrl) {
-  return new Promise((resolve, reject) => {
-    const width = 600, height = 600;
-    const left = (screen.width / 2) - (width / 2);
-    const top = (screen.height / 2) - (height / 2);
-
-    const loginWindow = window.open(
-      'about:blank',
-      'HOMESLoginPopup',
-      `width=${width},height=${height},top=${top},left=${left}`
-    );
-
-    if (!loginWindow) return reject(new Error('Popup blocked'));
-
-    client.loginImplicitGrant(clientId, redirectUrl)
-      .then(() => {
-        loginWindow.close();
-        resolve();
-      })
-      .catch(err => {
-        loginWindow.close();
-        reject(err);
-      });
-  });
-}
-
-// ------------------ Init ------------------
-async function init() {
-  try {
+    // -------------------------------
+    // 3️⃣ Initialize Platform Client
+    // -------------------------------
     const platformClient = require('platformClient');
     const client = platformClient.ApiClient.instance;
-    const notificationsApi = new platformClient.NotificationsApi();
-    const conversationsApi = new platformClient.ConversationsApi();
+    client.setEnvironment(config.gc_region);
+    client.setPersistSettings(true, 'homesClient');
+
     const usersApi = new platformClient.UsersApi();
 
-    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-      throw new Error('Missing required configuration parameters.');
-    }
-
-    client.setEnvironment(config.gc_region);
-    client.setPersistSettings(true, 'homesPopupController');
-
-    // ------------------ Login ------------------
-    updateStatus('Opening login in popup...');
-    await popupSafeLogin(client, config.gc_clientId, config.gc_redirectUrl);
-    updateStatus('Authentication successful.');
-
-    // ------------------ Get Current User ------------------
-    const user = await usersApi.getUsersMe();
-    updateStatus(`Logged in as: ${user.name} (email: ${user.email})`);
-
-    if (blockedAgentIds.includes(user.id)) {
-      updateStatus(`Agent ${user.name} is blocked from using this widget.`);
-      return;
-    }
-
-    // ------------------ Notifications ------------------
-    const channel = await notificationsApi.postNotificationsChannels();
-    updateStatus('Notification channel created.');
-    const topic = `v2.users.${user.id}.conversations.calls`;
-    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-    updateStatus(`Subscribed to topic: ${topic}`);
-
-    const socket = new WebSocket(channel.connectUri);
-    socket.onopen = () => updateStatus('WebSocket connection opened.');
-    socket.onerror = (err) => updateStatus('WebSocket error occurred.');
-    socket.onclose = () => updateStatus('WebSocket connection closed.');
-
-    // ------------------ Handle Incoming Events ------------------
-    socket.onmessage = async (event) => {
+    // -------------------------------
+    // 4️⃣ Authenticate and fetch user
+    // -------------------------------
+    async function fetchCurrentUser() {
       try {
-        const data = JSON.parse(event.data);
-        if (!data.topicName || !data.eventBody) return;
-
-        const interaction = data.eventBody;
-        const participants = interaction.participants || [];
-        const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-        if (!agentParticipant) return;
-
-        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(url => url);
-
-        // Open CRM tab
-        if (agentParticipant.state === 'connected' && popUrl && !crmTab) {
-          const connectedAgents = participants.filter(p => p.purpose === 'agent' && p.state === 'connected');
-          connectedAgents.sort((a, b) => new Date(a.connectedTime) - new Date(b.connectedTime));
-          const isFirstAgent = connectedAgents.length > 0 && connectedAgents[0].user?.id === agentParticipant.user?.id;
-
-          if (isFirstAgent) {
-            const url = new URL(popUrl);
-            url.searchParams.set('p2', user.email);
-            updateStatus(`Opening HOMES tab: ${url.toString()}`);
-            crmTab = window.open(url.toString(), '_blank');
-          }
-        }
-
-        // Close CRM tab after wrap-up
-        if (agentParticipant.state === 'disconnected' || agentParticipant.state === 'terminated') {
-          const wrapup = agentParticipant.wrapup;
-          if (wrapup && crmTab && !crmTab.closed) {
-            updateStatus('Closing HOMES tab after wrap-up.');
-            crmTab.close();
-            crmTab = null;
-          }
-        }
-
+        updateStatus('Authenticating...');
+        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl);
+        updateStatus('Authentication successful.');
+        const user = await usersApi.getUsersMe();
+        updateStatus(`Logged in as: ${user.name}`);
+        updateStatus(`Email: ${user.email}`);
+        console.log('Current user:', user);
+        return user;
       } catch (err) {
-        console.error('[HOMES Popup Controller] Error handling WebSocket message:', err);
-        updateStatus('Error processing interaction event.');
+        console.error('[HOMES Client] User fetch error:', err);
+        updateStatus(`Error fetching user: ${err.message}`);
       }
-    };
-
-    // ------------------ Handle Widget Lifecycle ------------------
-    if (window._genesys?.widgets?.bus) {
-      window._genesys.widgets.bus.subscribe('lifecycle', (e) => {
-        if (e?.eventName === 'stop') {
-          if (crmTab && !crmTab.closed) {
-            crmTab.close();
-            crmTab = null;
-            updateStatus('CRM tab closed due to widget stop event.');
-          }
-          if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.close();
-            updateStatus('WebSocket closed due to widget stop event.');
-          }
-        }
-      });
     }
 
-  } catch (err) {
-    console.error('[HOMES Popup Controller] Initialization error:', err);
-    updateStatus(`Initialization error: ${err.message}`);
-  }
-}
+    // -------------------------------
+    // 5️⃣ Initialize PureCloud Client App SDK
+    // -------------------------------
+    const ClientApp = window.purecloud.apps.ClientApp;
+    const myClientApp = new ClientApp({
+      gcHostOrigin: config.gcHostOrigin,
+      gcTargetEnv: config.gcTargetEnv
+    });
 
-// ------------------ Start ------------------
-initialiseAndStorePluginConfiguration();
-config = getStoredConfig();
+    myClientApp.lifecycle.addBootstrapListener(async () => {
+      updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
+      myClientApp.lifecycle.bootstrapped();
+      // Fetch current user after bootstrap
+      await fetchCurrentUser();
+    });
 
-const ClientApp = window.purecloud.apps.ClientApp;
-const myClientApp = new ClientApp({
-  gcHostOrigin: config.gcHostOrigin,
-  gcTargetEnv: config.gcTargetEnv
-});
-
-myClientApp.lifecycle.addBootstrapListener(() => {
-  updateStatus('Client App SDK bootstrapped.');
-  myClientApp.lifecycle.bootstrapped();
-  init(); // Start the main initialization after SDK bootstrap
-});
-
-myClientApp.lifecycle.addStopListener(() => {
-  updateStatus('Client App SDK stopped.');
-  myClientApp.lifecycle.stopped();
-});
-</script>
+    myClientApp.lifecycle.addStopListener(() => {
+      updateStatus('Client App SDK stopped.');
+      myClientApp.lifecycle.stopped();
+    });
+  </script>
 </body>
 </html>
