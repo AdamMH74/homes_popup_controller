@@ -9,7 +9,7 @@
       border: 1px solid #ccc; 
       padding: 15px; 
       background: white; 
-      min-height: 350px;
+      min-height: 400px;
       font-family: monospace;
       white-space: pre-wrap;
       overflow: auto;
@@ -21,13 +21,13 @@
   <h2>HOMES Client Debug</h2>
   <div id="statusBox"></div>
 
-  <!-- SDKs - MUST be loaded BEFORE your script -->
+  <!-- SDKs (fallback loading - safe even inside Genesys Cloud) -->
   <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/purecloud-client-app-sdk@latest/dist/purecloud-client-app-sdk.min.js"></script>
+  <script src="https://sdk-cdn.mypurecloud.com/client-apps/latest/purecloud-client-app-sdk.min.js"></script>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const VERSION = '1.2.1';
+      const VERSION = '1.2.2';
 
       function updateStatus(message, replaceLast = false) {
         const statusBox = document.getElementById('statusBox');
@@ -96,16 +96,24 @@
       }
 
       // -------------------------------
-      // 3️⃣ Initialize Platform Client
+      // 3️⃣ Get Platform Client (with better detection)
       // -------------------------------
-      const platformClient = window.purecloud?.platformClient || window.platformClient;
+      let platformClient = window.purecloud?.platformClient || window.platformClient;
+
+      // Extra fallback in case Genesys injects it differently
+      if (!platformClient && window.PureCloudPlatform) {
+        platformClient = window.PureCloudPlatform;
+      }
+
       if (!platformClient) {
-        updateStatus('ERROR: Platform Client SDK not loaded. Check script tags.', true);
+        updateStatus('ERROR: Platform Client SDK not loaded. SDK loading may be blocked or delayed.', true);
         return;
       }
 
+      updateStatus('Platform Client SDK detected successfully.');
+
       const client = platformClient.ApiClient.instance;
-      client.setEnvironment(config.gc_region || 'mypurecloud.com');
+      client.setEnvironment(config.gc_region || 'mypurecloud.com.au');
       client.setPersistSettings(true, 'homesClient');
 
       const usersApi = new platformClient.UsersApi();
@@ -113,19 +121,26 @@
       // -------------------------------
       // 4️⃣ Initialize PureCloud Client App SDK
       // -------------------------------
-      const ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
+      let ClientApp = window.purecloud?.apps?.ClientApp || window.ClientApp;
+
       const myClientApp = ClientApp ? new ClientApp({
         gcHostOrigin: config.gcHostOrigin,
         gcTargetEnv: config.gcTargetEnv
       }) : null;
+
+      if (myClientApp) {
+        updateStatus('Client App SDK initialized.');
+      } else {
+        updateStatus('Warning: Client App SDK not found - running in limited mode.');
+      }
 
       // -------------------------------
       // 5️⃣ Authenticate and fetch user
       // -------------------------------
       async function fetchCurrentUser() {
         try {
-          updateStatus('Authenticating...', true);
-          
+          updateStatus('Starting authentication...', true);
+
           await client.loginImplicitGrant(
             config.gc_clientId,
             config.gc_redirectUrl,
@@ -136,16 +151,15 @@
 
           const user = await usersApi.getUsersMe();
           updateStatus(`Logged in as: ${user.name}`, true);
-          updateStatus(`Email: ${user.email}`, true);
-          console.log('Current user:', user);
+          updateStatus(`Email: ${user.email || 'N/A'}`, true);
 
           if (myClientApp) {
-            updateStatus('Client App SDK bootstrapped.', true);
+            updateStatus('Signaling bootstrap complete to Genesys Cloud.', true);
             myClientApp.lifecycle.bootstrapped();
           }
         } catch (err) {
-          console.error('[HOMES Client] Error:', err);
-          updateStatus(`Error: ${err.message || err}`, true);
+          console.error('[HOMES Client] Auth error:', err);
+          updateStatus(`Authentication failed: ${err.message || err}`, true);
         }
       }
 
@@ -161,11 +175,11 @@
 
         myClientApp.lifecycle.addStopListener(() => {
           updateStatus('Client App SDK stopped.', true);
-          myClientApp.lifecycle.stopped();
+          if (myClientApp.lifecycle.stopped) myClientApp.lifecycle.stopped();
         });
       } else {
-        // Fallback when testing outside Genesys Cloud
-        updateStatus('Running in standalone mode (no ClientApp SDK)');
+        // Standalone / popup testing fallback
+        updateStatus('No ClientApp SDK - starting auth directly (for testing)');
         fetchCurrentUser();
       }
     });
