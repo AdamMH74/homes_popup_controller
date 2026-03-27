@@ -3,101 +3,63 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Popup Controller</title>
-    <script src="purecloud-platform-client-v2.min.js"></script>
+  <script src="purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 10px;
-    }
-    .info-container {
-      background-color: #f5f5f5;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    .tab-status {
-      padding: 12px 16px;
-      border-radius: 6px;
-      font-weight: bold;
-      margin-bottom: 15px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .tab-open {
-      background-color: #d4edda;
-      color: #155724;
-      border: 1px solid #c3e6cb;
-    }
-    .tab-closed {
-      background-color: #f8d7da;
-      color: #721c24;
-      border: 1px solid #f5c6cb;
-    }
-    button {
-      padding: 6px 12px;
-      margin-top: 5px;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
+    body { font-family: Arial, sans-serif; margin: 10px; }
+    .info-container { background-color: #f5f5f5; padding: 15px; border-radius: 6px; margin-bottom: 15px; font-size: 14px; line-height: 1.5; max-height: 300px; overflow-y: auto; }
+    .tab-status { padding: 12px 16px; border-radius: 6px; font-weight: bold; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+    .tab-open { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .tab-closed { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    button { padding: 6px 12px; margin-top: 5px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background-color: #0056b3; }
   </style>
 </head>
 <body>
 
-  <!-- Tab Status Indicator -->
   <div id="tabStatus" class="tab-status tab-closed">
     <span id="tabIndicator">●</span>
     <span id="tabText">HOMES Tab: CLOSED</span>
-    <button id="refreshBtn" style="margin-left: auto; display: none;">Refresh Tab</button>
+    <button id="refreshBtn" style="margin-left:auto; display:none;">Refresh Tab</button>
   </div>
 
-  <!-- General Status Log -->
   <div class="info-container" id="statusBox">
     <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.1.1...</p>
   </div>
 
   <script>
     const VERSION = '1.1.1';
-
-    const blockedAgentIds = [
-      'a45dcb75-1121-4fb0-b956-3fb9437e539e' // Pete Matthews
-    ];
-
-    let crmTab = null;
-    let config = null;
-
+    const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e']; // Example blocked agent
     const existingCallCheckInterval = 2500;
     const existingCallMaxChecks = 20;
-
-    const platformClient = require('platformClient');
+    const platformClient = window.platformClient;
     const client = platformClient.ApiClient.instance;
     const notificationsApi = new platformClient.NotificationsApi();
     const conversationsApi = new platformClient.ConversationsApi();
     const usersApi = new platformClient.UsersApi();
 
+    let crmTab = null;
+    let config = null;
+    let retryInProgress = false;
+
+    // =================== UTILITIES ===================
     function updateStatus(message) {
+      const time = new Date().toLocaleTimeString();
       const statusBox = document.getElementById('statusBox');
       const p = document.createElement('p');
-      p.textContent = message;
+      p.textContent = `[${time}] ${message}`;
       statusBox.appendChild(p);
+      if (statusBox.childNodes.length > 50) statusBox.removeChild(statusBox.firstChild);
       console.log('[HOMES Popup Controller]', message);
     }
+
+    function log(...args) { if (config?.debug === 'true') console.log('[HOMES Popup Controller]', ...args); }
 
     function updateTabStatus(isOpen) {
       const tabStatusEl = document.getElementById('tabStatus');
       const tabText = document.getElementById('tabText');
       const refreshBtn = document.getElementById('refreshBtn');
-
       if (isOpen) {
         tabStatusEl.className = 'tab-status tab-open';
         tabText.textContent = 'HOMES Tab: OPEN ✅';
@@ -109,11 +71,7 @@
       }
     }
 
-    function log(...args) {
-      console.log('[HOMES Popup Controller]', ...args);
-    }
-
-    // ... [getQueryParams, initialiseAndStorePluginConfiguration, getStoredConfig remain the same] ...
+    function setCrmTab(tab) { crmTab = tab; updateTabStatus(!!tab && !tab.closed); }
 
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
@@ -130,9 +88,7 @@
 
     function initialiseAndStorePluginConfiguration() {
       const params = getQueryParams();
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== null) sessionStorage.setItem(key, value);
-      });
+      Object.entries(params).forEach(([key, value]) => { if (value !== null) sessionStorage.setItem(key, value); });
     }
 
     function getStoredConfig() {
@@ -154,18 +110,20 @@
       return connectedAgents.length > 0 && connectedAgents[0].user?.id === currentUserId;
     }
 
-    // Update tab status whenever we open or close
-    function setCrmTab(tab) {
-      crmTab = tab;
-      updateTabStatus(!!tab && !tab.closed);
+    function getScreenPopUrl(participants) { return participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean); }
+
+    function openOrFocusTab(url) {
+      if (!crmTab || crmTab.closed) {
+        crmTab = window.open(url, '_blank');
+        if (!crmTab) { updateStatus('Popup blocked. Please allow popups.'); return; }
+      } else crmTab.location.href = url;
+      crmTab.focus();
+      setCrmTab(crmTab);
     }
 
+    // =================== EXISTING CALLS CHECK ===================
     async function checkExistingActiveCalls(user, checkCounter = 0) {
-      if (checkCounter > existingCallMaxChecks) {
-        updateStatus('Existing call check: Maximum attempts reached.');
-        return;
-      }
-
+      if (checkCounter > existingCallMaxChecks) { updateStatus('Existing call check: Maximum attempts reached.'); return; }
       try {
         const activeCalls = await conversationsApi.getConversationsCalls();
         if (!activeCalls?.entities?.length) {
@@ -177,30 +135,27 @@
           const participants = call.participants || [];
           const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
           if (!agentParticipant) continue;
-
-          const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+          const popUrl = getScreenPopUrl(participants);
           if (!popUrl || agentParticipant.state !== 'connected') continue;
-
           if (isFirstAgent(participants, user.id)) {
             const url = new URL(popUrl);
             url.searchParams.set('p2', user.email);
-
             updateStatus(`Opening HOMES tab from existing call: ${url}`);
-            const newTab = window.open(url.toString(), '_blank');
-            setCrmTab(newTab);
+            openOrFocusTab(url.toString());
             return;
           }
         }
-      } catch (err) {
-        console.error('[HOMES] Existing call check error:', err);
-      }
+      } catch (err) { console.error('[HOMES] Existing call check error:', err); }
     }
 
+    // =================== INITIALIZATION ===================
     async function init() {
+      if (retryInProgress) return;
+      retryInProgress = true;
+
       try {
-        if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+        if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl)
           throw new Error('Missing required configuration parameters.');
-        }
 
         client.setEnvironment(config.gc_region);
         client.setPersistSettings(true, 'homesPopupController');
@@ -211,102 +166,71 @@
 
         const user = await usersApi.getUsersMe();
         updateStatus(`Logged in as: ${user.name}`);
-
-        if (blockedAgentIds.includes(user.id)) {
-          updateStatus(`Agent ${user.name} is blocked.`);
-          return;
-        }
+        if (blockedAgentIds.includes(user.id)) { updateStatus(`Agent ${user.name} is blocked.`); return; }
 
         const channel = await notificationsApi.postNotificationsChannels();
         const topic = `v2.users.${user.id}.conversations.calls`;
         await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{ id: topic }]);
-
         const socket = new WebSocket(channel.connectUri);
 
-        socket.onopen = () => updateStatus('WebSocket connected.');
-        socket.onmessage = async (event) => {
+        socket.onopen = () => { updateStatus('WebSocket connected.'); retryInProgress = false; };
+        socket.onclose = () => {
+          updateStatus('WebSocket disconnected. Retrying in 3s...');
+          setTimeout(init, 3000);
+        };
+
+        socket.onmessage = async event => {
           try {
             const data = JSON.parse(event.data);
             if (!data.eventBody) return;
 
-            const interaction = data.eventBody;
-            const participants = interaction.participants || [];
+            const participants = data.eventBody.participants || [];
             const agentParticipant = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
             if (!agentParticipant) return;
 
-            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
-
-            // Open tab
+            const popUrl = getScreenPopUrl(participants);
             if (agentParticipant.state === 'connected' && isFirstAgent(participants, user.id) && popUrl) {
               const url = new URL(popUrl);
               url.searchParams.set('p2', user.email);
-
-              updateStatus(`Call connected → Opening HOMES tab`);
-
-              if (!crmTab || crmTab.closed) {
-                crmTab = window.open('about:blank', '_blank');
-              }
-              crmTab.location.href = url.toString();
-              setCrmTab(crmTab);
+              updateStatus('Call connected → Opening HOMES tab');
+              openOrFocusTab(url.toString());
             }
 
-            // Close tab after wrap-up
             if ((agentParticipant.state === 'disconnected' || agentParticipant.state === 'terminated') &&
                 agentParticipant.wrapup?.state === 'done' &&
                 crmTab && !crmTab.closed) {
-
               updateStatus('Wrap-up completed → Closing HOMES tab');
               crmTab.close();
               setCrmTab(null);
             }
-          } catch (err) {
-            console.error('[HOMES] WebSocket error:', err);
-          }
+          } catch (err) { console.error('[HOMES] WebSocket error:', err); }
         };
 
-        // Check existing calls
         checkExistingActiveCalls(user);
 
-      } catch (err) {
-        updateStatus(`Error: ${err.message}`);
-        console.error(err);
-      }
+      } catch (err) { updateStatus(`Error: ${err.message}`); console.error(err); retryInProgress = false; }
     }
 
-    // ====================== CLIENT APP LIFECYCLE ======================
+    // =================== CLIENT APP LIFECYCLE ===================
     initialiseAndStorePluginConfiguration();
     config = getStoredConfig();
 
     const ClientApp = window.purecloud.apps.ClientApp;
-    const myClientApp = new ClientApp({
-      gcHostOrigin: config.gcHostOrigin,
-      gcTargetEnv: config.gcTargetEnv
-    });
+    const myClientApp = new ClientApp({ gcHostOrigin: config.gcHostOrigin, gcTargetEnv: config.gcTargetEnv });
 
     myClientApp.lifecycle.addBootstrapListener(() => {
       updateStatus('ClientApp bootstrapped.');
-
-      // Pre-open tab early
-      if (!crmTab || crmTab.closed) {
-        crmTab = window.open('about:blank', '_blank');
-        setCrmTab(crmTab);
-        updateStatus('Pre-opened CRM tab (ready).');
-      }
-
+      if (!crmTab || crmTab.closed) openOrFocusTab('about:blank');
       init();
       myClientApp.lifecycle.bootstrapped();
     });
 
     myClientApp.lifecycle.addStopListener(() => {
       updateStatus('ClientApp stopping...');
-      if (crmTab && !crmTab.closed) {
-        crmTab.close();
-        setCrmTab(null);
-      }
+      if (crmTab && !crmTab.closed) { crmTab.close(); setCrmTab(null); }
       myClientApp.lifecycle.stopped();
     });
 
-    // Refresh button handler
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('refreshBtn').addEventListener('click', () => {
         if (crmTab && !crmTab.closed) {
