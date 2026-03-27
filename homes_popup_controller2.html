@@ -94,7 +94,7 @@
     async function fetchCurrentUser() {
       try {
         updateStatus('Authenticating...');
-        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl, config.gcUsePopupAuth === 'true');
+        await client.loginImplicitGrant(config.gc_clientId, config.gc_redirectUrl, false);
         updateStatus('Authentication successful.');
         const user = await usersApi.getUsersMe();
         updateStatus(`Logged in as: ${user.name}`);
