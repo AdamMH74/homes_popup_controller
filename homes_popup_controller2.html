@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>HOMES Client App</title>
-  <!-- Load Platform Client SDK and Client App SDK from CDN -->
+  <!-- Official CDN for Platform Client SDK -->
   <script src="https://sdk-cdn.mypurecloud.com/javascript/latest/purecloud-platform-client-v2.min.js"></script>
+  <!-- Client App SDK -->
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
@@ -28,7 +29,7 @@
   </div>
 
   <script>
-    const VERSION = '1.0.2';
+    const VERSION = '1.0.3';
 
     function updateStatus(message, isError = false) {
       const statusBox = document.getElementById('statusBox');
@@ -41,7 +42,7 @@
       console.log('[HOMES Client]', message);
     }
 
-    // Get query parameters from Genesys Cloud
+    // Get query parameters from URL
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
@@ -49,77 +50,90 @@
         gc_region: params.get('gc_region') || 'mypurecloud.com',
         gc_redirectUrl: params.get('gc_redirectUrl'),
         gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv')
+        gcTargetEnv: params.get('gcTargetEnv'),
+        gc_conversationId: params.get('gc_conversationId')
       };
     }
 
     const config = getQueryParams();
     updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
 
-    // === Platform Client Setup (Browser-friendly) ===
-    const platformClient = window.platformClient; // ✅ Browser global, no require()
-    const client = platformClient.ApiClient.instance;
-    client.setEnvironment(config.gc_region);
-    client.setPersistSettings(true, 'homesClient');
-    updateStatus('Platform Client initialized.');
-
-    // === Client App SDK Setup ===
-    const ClientApp = window.purecloud.apps.ClientApp;
-    const myClientApp = new ClientApp({
-      gcHostOrigin: config.gcHostOrigin,
-      gcTargetEnv: config.gcTargetEnv
-    });
-
-    const usersApi = new platformClient.UsersApi();
-
-    function displayUsers(users) {
-      updateStatus(`✅ Retrieved ${users.length} user(s):`);
-      users.forEach(user => {
-        const name = user.name || 'N/A';
-        const email = user.email || 'N/A';
-        const title = user.title || '';
-        updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
-      });
+    // Wait for Platform Client SDK to load
+    function waitForPlatformClient(callback, retries = 50) {
+      if (window.platformClient && window.platformClient.ApiClient) {
+        callback();
+      } else if (retries > 0) {
+        setTimeout(() => waitForPlatformClient(callback, retries - 1), 100);
+      } else {
+        updateStatus('❌ platformClient SDK failed to load', true);
+      }
     }
 
-    // === Bootstrap Listener ===
-    myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus(`Client App SDK bootstrapped (v${VERSION})`);
+    waitForPlatformClient(() => {
+      updateStatus('✅ Platform Client SDK loaded successfully');
 
-      // Get OAuth token from Client App SDK
-      const token = myClientApp.getToken();
-      if (token) {
-        client.setAccessToken(token);
-        updateStatus('✅ OAuth token set for Platform API');
-      } else {
-        updateStatus('⚠️ No OAuth token available. API calls may fail.', true);
+      const platformClient = window.platformClient;
+      const client = platformClient.ApiClient.instance;
+      client.setEnvironment(config.gc_region);
+      client.setPersistSettings(true, 'homesClient');
+      updateStatus('Platform Client initialized');
+
+      // Client App SDK
+      const ClientApp = window.purecloud.apps.ClientApp;
+      const myClientApp = new ClientApp({
+        gcHostOrigin: config.gcHostOrigin,
+        gcTargetEnv: config.gcTargetEnv
+      });
+
+      const usersApi = new platformClient.UsersApi();
+
+      function displayUsers(users) {
+        updateStatus(`✅ Retrieved ${users.length} user(s):`);
+        users.forEach(user => {
+          const name = user.name || 'N/A';
+          const email = user.email || 'N/A';
+          const title = user.title || '';
+          updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
+        });
       }
 
-      // Get current user
-      usersApi.getUsersMe({ expand: ['presence', 'routingStatus'] })
-        .then(me => updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`))
-        .catch(err => updateStatus('⚠️ Ignored: Could not fetch current user', true));
+      // Bootstrap listener
+      myClientApp.lifecycle.addBootstrapListener(() => {
+        updateStatus(`Client App SDK bootstrapped (v${VERSION})`);
 
-      // Get list of users
-      usersApi.getUsers({ pageSize: 25, pageNumber: 1 })
-        .then(resp => {
-          updateStatus(`✅ Fetched ${resp.entities?.length || 0} users`);
-          if (resp.entities?.length > 0) displayUsers(resp.entities);
-        })
-        .catch(err => updateStatus('⚠️ Ignored: Could not fetch users', true));
+        const token = myClientApp.getToken();
+        if (token) {
+          client.setAccessToken(token);
+          updateStatus('✅ OAuth token set for Platform API');
+        } else {
+          updateStatus('⚠️ No OAuth token available. API calls may fail.', true);
+        }
 
-      // Signal Genesys Cloud that bootstrapping is complete
-      myClientApp.lifecycle.bootstrapped();
-      updateStatus('Lifecycle: bootstrapped() called successfully.');
+        // Get current user
+        usersApi.getUsersMe({ expand: ['presence', 'routingStatus'] })
+          .then(me => updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`))
+          .catch(err => updateStatus('⚠️ Ignored: Could not fetch current user', true));
+
+        // Get list of users
+        usersApi.getUsers({ pageSize: 25, pageNumber: 1 })
+          .then(resp => {
+            updateStatus(`✅ Fetched ${resp.entities?.length || 0} users`);
+            if (resp.entities?.length > 0) displayUsers(resp.entities);
+          })
+          .catch(err => updateStatus('⚠️ Ignored: Could not fetch users', true));
+
+        myClientApp.lifecycle.bootstrapped();
+        updateStatus('Lifecycle: bootstrapped() called successfully.');
+      });
+
+      // Stop listener
+      myClientApp.lifecycle.addStopListener(() => {
+        updateStatus('Client App SDK stopped.');
+        myClientApp.lifecycle.stopped();
+      });
+
+      updateStatus('Event listeners registered. Waiting for Genesys Cloud bootstrap...');
     });
-
-    // Stop listener
-    myClientApp.lifecycle.addStopListener(() => {
-      updateStatus('Client App SDK stopped.');
-      myClientApp.lifecycle.stopped();
-    });
-
-    updateStatus('Event listeners registered. Waiting for Genesys Cloud bootstrap...');
   </script>
 </body>
 </html>
