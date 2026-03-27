@@ -57,7 +57,7 @@
       if (typeof platformClient !== 'undefined' && platformClient?.ApiClient) {
         callback();
       } else if (retries > 0) {
-        setTimeout(() => waitForPlatformClient(callback, retries - 1), 100);
+        setTimeout(() => waitForPlatformClient(callback, retries - 1), 200);
       } else {
         updateStatus('❌ platformClient SDK failed to load after timeout', true);
       }
