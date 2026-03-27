@@ -1,8 +1,10 @@
 <script>
+document.addEventListener('DOMContentLoaded', () => {
   const VERSION = '1.2.0';
 
   function updateStatus(message, replaceLast = false) {
     const statusBox = document.getElementById('statusBox');
+    if (!statusBox) return; // Safety check
     if (replaceLast && statusBox.lastChild) {
       statusBox.lastChild.textContent = message;
     } else {
@@ -58,7 +60,6 @@
   const config = getStoredConfig();
   updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
-  // Early check for required config
   if (!config.gc_clientId || !config.gc_redirectUrl) {
     updateStatus('Error: Missing required configuration: gc_clientId or gc_redirectUrl', true);
     throw new Error('Missing required configuration');
@@ -110,7 +111,6 @@
   myClientApp.lifecycle.addBootstrapListener(async () => {
     updateStatus(`Client App SDK bootstrapped (v${VERSION}).`, true);
     myClientApp.lifecycle.bootstrapped();
-    // Fetch current user after bootstrap
     await fetchCurrentUser();
   });
 
@@ -118,4 +118,6 @@
     updateStatus('Client App SDK stopped.', true);
     myClientApp.lifecycle.stopped();
   });
+
+});
 </script>
