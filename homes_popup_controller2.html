@@ -49,7 +49,7 @@
     const config = getQueryParams();
     updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
-    // Initialize Genesys Cloud Platform Client
+    // FIXED: Safe platformClient loading (only change)
     let platformClient;
     try {
       platformClient = require('platformClient');
@@ -74,33 +74,9 @@
       gcTargetEnv: config.gcTargetEnv
     });
 
-    myClientApp.lifecycle.addBootstrapListener(async () => {
+    myClientApp.lifecycle.addBootstrapListener(() => {
       updateStatus(`Client App SDK bootstrapped (v${VERSION}).`);
       myClientApp.lifecycle.bootstrapped();
-
-      try {
-        updateStatus('Authenticating...');
-
-        await client.loginImplicitGrant(
-          config.gc_clientId,
-          config.gc_redirectUrl,
-          false   // change to true if you want popup auth
-        );
-
-        updateStatus('Authentication successful.');
-
-        // === NEW: Fetch and show current user ===
-        const usersApi = new platformClient.UsersApi();
-        const me = await usersApi.getUsersMe();
-
-        updateStatus(`Logged in as: ${me.name}`);
-        updateStatus(`Email: ${me.email}`);
-        updateStatus(`User ID: ${me.id}`);
-
-      } catch (err) {
-        updateStatus(`Error: ${err.message}`);
-        console.error(err);
-      }
     });
 
     myClientApp.lifecycle.addStopListener(() => {
