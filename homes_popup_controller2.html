@@ -35,29 +35,65 @@
       console.log('[HOMES Client]', message);
     }
 
-    // Get query parameters passed from Genesys Cloud
+    // -------------------------------
+    // 1️⃣ Query parameter handling (from old script)
+    // -------------------------------
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
         gc_clientId: params.get('gc_clientId'),
         gc_region: params.get('gc_region'),
         gc_redirectUrl: params.get('gc_redirectUrl'),
+        gcUsePopupAuth: params.get('gcUsePopupAuth'),
+        debug: params.get('debug'),
         gcHostOrigin: params.get('gcHostOrigin'),
         gcTargetEnv: params.get('gcTargetEnv')
       };
     }
 
-    const config = getQueryParams();
+    function initialiseAndStorePluginConfiguration() {
+      const params = getQueryParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== null) {
+          sessionStorage.setItem(key, value);
+        }
+      }
+      updateStatus('Stored query parameters in sessionStorage.');
+    }
+
+    function getStoredConfig() {
+      const config = {
+        gc_clientId: sessionStorage.getItem('gc_clientId'),
+        gc_region: sessionStorage.getItem('gc_region'),
+        gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
+        gcUsePopupAuth: sessionStorage.getItem('gcUsePopupAuth'),
+        debug: sessionStorage.getItem('debug'),
+        gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
+        gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
+      };
+      updateStatus('Retrieved configuration from sessionStorage.');
+      return config;
+    }
+
+    // -------------------------------
+    // 2️⃣ Initialize config first
+    // -------------------------------
+    initialiseAndStorePluginConfiguration();
+    const config = getStoredConfig();
     updateStatus(`Loaded configuration: ${JSON.stringify(config)}`);
 
-    // Initialize Genesys Cloud Platform Client
+    // -------------------------------
+    // 3️⃣ Initialize Platform Client
+    // -------------------------------
     const platformClient = require('platformClient');
     const client = platformClient.ApiClient.instance;
     client.setEnvironment(config.gc_region);
     client.setPersistSettings(true, 'homesClient');
     updateStatus('Platform client initialized.');
 
-    // Initialize PureCloud Client App SDK
+    // -------------------------------
+    // 4️⃣ Initialize PureCloud Client App SDK
+    // -------------------------------
     const ClientApp = window.purecloud.apps.ClientApp;
     const myClientApp = new ClientApp({
       gcHostOrigin: config.gcHostOrigin,
