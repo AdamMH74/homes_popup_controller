@@ -117,16 +117,38 @@
       };
     }
 
-    function getOAuthHost(region) {
-      if (!region) return 'login.mypurecloud.com';
-      return 'login.' + region.replace(/^apps\./, '');
-    }
+    function normalizeRegion(region) {
+  if (!region) return null;
 
-    function getApiHost(region) {
-      if (!region) return 'apps.mypurecloud.com';
-      if (!region.startsWith('apps.')) return 'apps.' + region;
-      return region;
-    }
+  let r = region.toLowerCase().trim();
+
+  r = r.replace(/^https?:\/\//, '');
+  r = r.replace(/^login\./, '');
+  r = r.replace(/^apps\./, '');
+
+  if (r.startsWith('purecloud.')) {
+    r = 'mypurecloud.' + r.split('purecloud.')[1];
+  }
+
+  // Basic sanity check
+  if (!r.includes('mypurecloud')) {
+    return null;
+  }
+
+  return r;
+}
+
+function getOAuthHost(region) {
+  const normalized = normalizeRegion(region);
+  if (!normalized) return 'login.mypurecloud.com';
+  return `login.${normalized}`;
+}
+
+function getApiHost(region) {
+  const normalized = normalizeRegion(region);
+  if (!normalized) return 'apps.mypurecloud.com';
+  return `apps.${normalized}`;
+}
 
     function parseHashToken() {
       const hash = window.location.hash.substring(1);
@@ -145,6 +167,10 @@
 
       const oauthHost = getOAuthHost(config.gc_region);
       const apiHost = getApiHost(config.gc_region);
+	    updateStatus(`Original region: ${config.gc_region}`, 'info');
+		updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
+		updateStatus(`OAuth Host: ${oauthHost}`, 'info');
+		updateStatus(`API Host: ${apiHost}`, 'info');
 
       // Use global SDK (more reliable in browser)
       const platformClient = window.platformClient;
