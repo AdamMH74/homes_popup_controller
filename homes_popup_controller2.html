@@ -2,41 +2,107 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HOMES Client App</title>
-  <script src="purecloud-platform-client-v2.min.js"></script>
+  <script src="https://sdk-cdn.mypurecloud.com/javascript/purecloud-platform-client-v2.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #statusBox {
-      background: #f5f5f5;
-      padding: 15px;
-      border-radius: 5px;
-      max-width: 800px;
-      max-height: 600px;
-      overflow-y: auto;
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f8f9fa;
+      color: #333;
     }
-    #statusBox p { margin: 5px 0; }
-    .error { color: red; }
-    .success { color: green; }
+    h1 {
+      color: #0052cc;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 20px;
+    }
+    #statusBox {
+      background: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 900px;
+      max-height: 70vh;
+      overflow-y: auto;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      line-height: 1.5;
+    }
+    #statusBox p {
+      margin: 8px 0;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .error { 
+      background-color: #ffebee; 
+      color: #c62828; 
+      border-left: 4px solid #c62828;
+    }
+    .success { 
+      background-color: #e8f5e9; 
+      color: #2e7d32; 
+      border-left: 4px solid #2e7d32;
+    }
+    .info {
+      background-color: #e3f2fd;
+      color: #1565c0;
+      border-left: 4px solid #1565c0;
+    }
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      background-color: #0052cc;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background-color: #003d99;
+    }
+    .version {
+      font-size: 12px;
+      color: #888;
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
-  <h2>HOMES Client App Status</h2>
+  <h1>HOMES Client App</h1>
+  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.1.0</span></p>
+
   <div id="statusBox">
-    <p>Initializing...</p>
+    <p class="info">Initializing HOMES Client App...</p>
+  </div>
+
+  <button onclick="logout()">Logout & Clear Token</button>
+
+  <div class="version">
+    SDK: purecloud-platform-client-v2 • Implicit Grant (Recommended to migrate to PKCE soon)
   </div>
 
   <script>
-    const VERSION = '1.0.2';
+    const VERSION = '1.1.0';
 
-    function updateStatus(message, isError = false) {
+    function updateStatus(message, type = 'info') {
       const statusBox = document.getElementById('statusBox');
       if (!statusBox) return;
+
       const p = document.createElement('p');
-      p.textContent = message;
-      if (isError) p.classList.add('error');
+      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      
+      if (type === 'error') p.classList.add('error');
+      else if (type === 'success') p.classList.add('success');
+      else p.classList.add('info');
+
       statusBox.appendChild(p);
       statusBox.scrollTop = statusBox.scrollHeight;
-      console.log('[HOMES Client]', message);
+      console.log(`[HOMES Client v${VERSION}]`, message);
     }
 
     // Parse URL query parameters
@@ -51,33 +117,42 @@
       };
     }
 
-    // Return OAuth login host
     function getOAuthHost(region) {
-      if (!region) return region;
+      if (!region) return 'login.mypurecloud.com';
       return 'login.' + region.replace(/^apps\./, '');
     }
 
-    // Return API host
     function getApiHost(region) {
-      if (!region) return region;
+      if (!region) return 'apps.mypurecloud.com';
       if (!region.startsWith('apps.')) return 'apps.' + region;
       return region;
     }
 
-    const config = getQueryParams();
-    const oauthHost = getOAuthHost(config.gc_region);
-    const apiHost   = getApiHost(config.gc_region);
-
-    updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`);
-
     function parseHashToken() {
-      const hash = window.location.hash.substring(1); // remove #
+      const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
       return params.get('access_token');
     }
 
     async function initClientApp() {
-      const platformClient = require('platformClient');
+      const config = getQueryParams();
+      updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`, 'info');
+
+      if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+        updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
+        return;
+      }
+
+      const oauthHost = getOAuthHost(config.gc_region);
+      const apiHost = getApiHost(config.gc_region);
+
+      // Use global SDK (more reliable in browser)
+      const platformClient = window.platformClient;
+      if (!platformClient) {
+        updateStatus('❌ Genesys Cloud SDK not loaded. Check script src.', 'error');
+        return;
+      }
+
       const client = platformClient.ApiClient.instance;
       client.setEnvironment(apiHost);
       client.setPersistSettings(true, 'homesClient');
@@ -85,40 +160,78 @@
       const token = parseHashToken();
 
       if (!token) {
-        updateStatus('Redirecting to Genesys Cloud for login...');
-        const oauthUrl = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${config.gc_clientId}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-        window.location.href = oauthUrl; // full-page redirect
+        updateStatus('No access token found. Redirecting to Genesys Cloud login...', 'info');
+        
+        const oauthUrl = `https://${oauthHost}/oauth/authorize` +
+          `?response_type=token` +
+          `&client_id=${encodeURIComponent(config.gc_clientId)}` +
+          `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+
+        window.location.href = oauthUrl;
         return;
       }
 
-      updateStatus('✅ Access token retrieved from URL fragment');
+      updateStatus('✅ Access token retrieved from URL fragment', 'success');
       client.setAccessToken(token);
 
       try {
         const usersApi = new platformClient.UsersApi();
-        const me = await usersApi.getUsersMe();
-        updateStatus(`✅ Current user: ${me.name} (${me.email || me.username})`);
 
-        const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1 });
-        updateStatus(`✅ Fetched ${response.entities.length} users`);
+        // Get current user
+        const me = await usersApi.getUsersMe();
+        updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
+
+        // Fetch list of users
+        const response = await usersApi.getUsers({ 
+          pageSize: 25, 
+          pageNumber: 1,
+          expand: ['presence'] 
+        });
+
+        updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
         displayUsers(response.entities);
+
       } catch (err) {
-        updateStatus(`❌ Auth/API error: ${err.message || err}`, true);
         console.error(err);
+        updateStatus(`❌ API Error: ${err.message || err}`, 'error');
+        
+        if (err.status === 401 || err.status === 403) {
+          updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
+        }
       }
     }
 
     function displayUsers(users) {
-      updateStatus(`✅ Retrieved ${users.length} user(s):`);
+      if (!users || users.length === 0) {
+        updateStatus('No users returned.', 'info');
+        return;
+      }
+
+      updateStatus(`📋 Retrieved ${users.length} user(s):`, 'success');
+
       users.forEach(user => {
         const name = user.name || 'N/A';
-        const email = user.email || 'N/A';
-        const title = user.title || '';
-        updateStatus(`   • ${name} (${email}) ${title ? '- ' + title : ''}`);
+        const email = user.email || user.username || 'N/A';
+        const title = user.title ? ` - ${user.title}` : '';
+        const presence = user.presence ? ` [${user.presence.presenceDefinition?.systemPresence || 'Unknown'}]` : '';
+        
+        updateStatus(` • ${name} (${email})${title}${presence}`);
       });
     }
 
-    initClientApp();
+    function logout() {
+      if (confirm('Clear token and logout?')) {
+        const client = window.platformClient?.ApiClient.instance;
+        if (client) client.logout();
+        
+        // Clear hash and reload
+        window.location.hash = '';
+        window.location.reload();
+      }
+    }
+
+    // Initialize the app when page loads
+    window.onload = initClientApp;
   </script>
 </body>
 </html>
