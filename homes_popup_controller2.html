@@ -173,11 +173,20 @@ function getApiHost(region) {
 		updateStatus(`API Host: ${apiHost}`, 'info');
 
       // Use global SDK (more reliable in browser)
-      const platformClient = window.platformClient;
-      if (!platformClient) {
-        updateStatus('❌ Genesys Cloud SDK not loaded. Check script src.', 'error');
-        return;
-      }
+      let platformClient = window.platformClient;
+
+if (!platformClient && window.require) {
+  try {
+    platformClient = window.require('platformClient');
+  } catch (e) {
+    console.error('Require failed:', e);
+  }
+}
+
+if (!platformClient) {
+  updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
+  return;
+}
 
       const client = platformClient.ApiClient.instance;
       client.setEnvironment(apiHost);
