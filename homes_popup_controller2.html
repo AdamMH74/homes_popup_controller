@@ -166,8 +166,8 @@
 }
 
     async function initClientApp() {
-  updateStatus(`Full URL: ${window.location.href}`, 'info');
-  updateStatus(`Window hash: ${window.location.hash}`, 'info');
+  //updateStatus(`Full URL: ${window.location.href}`, 'info');
+  //updateStatus(`Window hash: ${window.location.hash}`, 'info');
 
   // 1️⃣ Get query params
   let config = getQueryParams();
@@ -212,8 +212,8 @@ if (token) {
 
   const oauthHost = getOAuthHost(config.gc_region);
   const apiHost = getApiHost(config.gc_region);
-  updateStatus(`Original region: ${config.gc_region}`, 'info');
-  updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
+  //updateStatus(`Original region: ${config.gc_region}`, 'info');
+  //updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
   updateStatus(`OAuth Host: ${oauthHost}`, 'info');
   updateStatus(`API Host: ${apiHost}`, 'info');
 
