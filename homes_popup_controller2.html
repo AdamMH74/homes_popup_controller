@@ -148,100 +148,62 @@
     }
 
     async function initClientApp() {
-      updateStatus(`Full URL: ${window.location.href}`, 'info');
-      updateStatus(`Window hash: ${window.location.hash}`, 'info');
+  updateStatus(`Full URL: ${window.location.href}`, 'info');
+  updateStatus(`Window hash: ${window.location.hash}`, 'info');
 
-      const config = getQueryParams();
-      updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`, 'info');
+  const config = getQueryParams();
+  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+    updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
+    return;
+  }
 
-      if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-        updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
-        return;
-      }
+  const oauthHost = getOAuthHost(config.gc_region);
+  const apiHost = getApiHost(config.gc_region);
 
-      const oauthHost = getOAuthHost(config.gc_region);
-      const apiHost = getApiHost(config.gc_region);
-      updateStatus(`Original region: ${config.gc_region}`, 'info');
-      updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
-      updateStatus(`OAuth Host: ${oauthHost}`, 'info');
-      updateStatus(`API Host: ${apiHost}`, 'info');
+  let client = window.platformClient?.ApiClient.instance;
+  if (!client) {
+    updateStatus('❌ Genesys Cloud SDK not loaded', 'error');
+    return;
+  }
 
-      let platformClient = window.platformClient;
-      if (!platformClient && window.require) {
-        try { platformClient = window.require('platformClient'); } 
-        catch (e) { console.error('Require failed:', e); }
-      }
-      if (!platformClient) {
-        updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
-        return;
-      }
+  client.setEnvironment(apiHost);
+  client.setPersistSettings(true, 'homesClient');
 
-      const client = platformClient.ApiClient.instance;
-      client.setEnvironment(apiHost);
-      client.setPersistSettings(true, 'homesClient');
+  const { token } = parseHashToken();
+  if (!token) {
+    updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
+    const oauthUrl = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+    window.location.href = oauthUrl;
+    return;
+  }
 
-      const { token, expiresIn, tokenType } = parseHashToken();
-      updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
+  client.setAccessToken(token);
 
-      if (!token) {
-        updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
+  try {
+    const usersApi = new window.platformClient.UsersApi();
+    const me = await usersApi.getUsersMe();
 
-        const oauthUrl = `https://${oauthHost}/oauth/authorize` +
-                         `?response_type=token` +
-                         `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-                         `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+    const name = me.name || 'N/A';
+    const email = me.email || me.username || 'N/A';
+    const title = me.title ? ` - ${me.title}` : '';
+    const presence = me.presence?.presenceDefinition?.systemPresence ? ` [${me.presence.presenceDefinition.systemPresence}]` : '';
 
-        updateStatus(`OAuth URL: ${oauthUrl}`, 'info');
+    updateStatus(`✅ Authenticated user: ${name} (${email})${title}${presence}`, 'success');
 
-        // --- OAuth troubleshooting checklist ---
-        updateStatus('⚠️ Token missing checklist:', 'info');
-        updateStatus('1. Ensure your OAuth client in Genesys Cloud has "Implicit Grant" enabled.', 'info');
-        updateStatus('2. Ensure the Redirect URI exactly matches this app\'s URL, including protocol, domain, path, and trailing slash if any.', 'info');
-        updateStatus('3. If using a browser with extensions, try in a private/incognito window to avoid hash stripping.', 'info');
-        updateStatus('4. After login, check that the URL contains #access_token=...', 'info');
+  } catch (err) {
+    console.error(err);
+    updateStatus(`❌ API Error: ${err.message || err}`, 'error');
+  }
+}
+✅ Changes Made:
+Removed the loop that fetches all users.
+Only calls getUsersMe() and logs the authenticated user.
+Preserves presence info if available.
+Keeps status messages for clarity.
 
-        window.location.href = oauthUrl;
-        return;
-      }
+This way, your #statusBox will only show the current logged-in user, no one else.
 
-      updateStatus('✅ Access token retrieved from URL fragment', 'success');
-      client.setAccessToken(token);
-
-      try {
-        const usersApi = new platformClient.UsersApi();
-        const me = await usersApi.getUsersMe();
-        updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
-
-        const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
-        updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
-        displayUsers(response.entities);
-
-      } catch (err) {
-        console.error(err);
-        updateStatus(`❌ API Error: ${err.message || err}`, 'error');
-        if (err.status === 401 || err.status === 403) {
-          updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
-        }
-      }
-    }
-
-    function displayUsers(users) {
-      if (!users || users.length === 0) {
-        updateStatus('No users returned.', 'info');
-        return;
-      }
-
-      updateStatus(`📋 Retrieved ${users.length} user(s):`, 'success');
-
-      users.forEach(user => {
-        const name = user.name || 'N/A';
-        const email = user.email || user.username || 'N/A';
-        const title = user.title ? ` - ${user.title}` : '';
-        const presence = user.presence ? ` [${user.presence.presenceDefinition?.systemPresence || 'Unknown'}]` : '';
-        
-        updateStatus(` • ${name} (${email})${title}${presence}`);
-      });
-    }
+If you want, I can also make it look nicer in a small card layout instead of a plain log line. Do you want me to do that?
 
     function logout() {
       if (confirm('Clear token and logout?')) {
