@@ -36,9 +36,7 @@
 
 <script>
 const VERSION = '1.2.0';
-const blockedAgentIds = [
-  'a45dcb75-1121-4fb0-b956-3fb9437e539e' // Example blocked agent
-];
+const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 
 let crmTab = null;
 let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
@@ -111,58 +109,53 @@ function parseHashToken() {
 async function checkExistingActiveCalls(user, conversationsApi, checkCounter=0) {
   const existingCallMaxChecks = 20;
   const existingCallCheckInterval = 2500;
-  if (checkCounter > existingCallMaxChecks) {
-    updateStatus('Call control: Maximum number of checks reached.');
-    return;
-  }
+  if (checkCounter > existingCallMaxChecks) return;
+
   const activeCalls = await conversationsApi.getConversationsCalls();
   if (!activeCalls?.entities || activeCalls.entities.length===0) {
     await new Promise(r=>setTimeout(r, existingCallCheckInterval));
     return checkExistingActiveCalls(user, conversationsApi, checkCounter+1);
   }
+
   for (const call of activeCalls.entities) {
     const participants = call.participants || [];
     const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
     const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
-    if (agent.state==='connected' && popUrl && !crmTab) {
-  const url = new URL(popUrl);
-  url.searchParams.set('p2', user.email);
-  crmTab = window.open(url.toString(), '_blank');
+    if (agent?.state==='connected' && popUrl && !crmTab) {
+      const url = new URL(popUrl);
+      url.searchParams.set('p2', user.email);
 
-  crmTab.onload = () => {
-    crmTab.postMessage({
-      type: 'homesConfig',
-      config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-      token: localStorage.getItem('homesToken')
-    }, '*'); // Replace '*' with exact origin if you want stricter security
-  };
+      crmTab = window.open(url.toString(), '_blank');
 
-  updateStatus(`Opening HOMES tab (postMessage config sent).`);
-}
+      // ✅ FIX: Use message listener instead of onload
+      function handleReady(event) {
+        if (event.source === crmTab && event.data?.type === 'homesReady') {
+          crmTab.postMessage({
+            type: 'homesConfig',
+            config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+            token: localStorage.getItem('homesToken')
+          }, '*');
+          updateStatus('HOMES config sent to new tab.');
+          window.removeEventListener('message', handleReady);
+        }
+      }
+      window.addEventListener('message', handleReady);
+      updateStatus('Opening HOMES tab, waiting for tab readiness...');
+    }
   }
 }
-window.addEventListener('message', (event) => {
-  if (event.data?.type === 'homesConfig') {
-    localStorage.setItem('homesConfig', JSON.stringify(event.data.config));
-    localStorage.setItem('homesToken', event.data.token);
-    console.log('[HOMES] Config and token received via postMessage.');
-  }
-});
+
 async function init() {
   try {
-    // 1️⃣ Get query params
     let config = getQueryParams();
     let { token, expiresIn } = parseHashToken();
 
-// ✅ Override with parent token if present
-if (tokenFromParent) {
-  token = tokenFromParent;
-  expiresIn = 3600; // prevent login redirect
-
-  // 🔥 STORE IT so the rest of the app uses it
-  localStorage.setItem('homesToken', tokenFromParent);
-  localStorage.setItem('homesTokenExpires', Date.now() + 3600 * 1000);
-}
+    if (tokenFromParent) {
+      token = tokenFromParent;
+      expiresIn = 3600;
+      localStorage.setItem('homesToken', tokenFromParent);
+      localStorage.setItem('homesTokenExpires', Date.now() + 3600 * 1000);
+    }
 
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
       const stored = JSON.parse(localStorage.getItem('homesConfig')||'{}');
@@ -174,18 +167,13 @@ if (tokenFromParent) {
 
     if (!token || expiresIn<=0) {
       const oauthHost = getOAuthHost(config.gc_region);
-      const oauthUrl = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-      updateStatus('Redirecting to Genesys Cloud login...', 'error');
-      window.location.href = oauthUrl; return;
+      window.location.href = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+      return;
     }
 
     localStorage.setItem('homesConfig', JSON.stringify(config));
 
-    const oauthHost = getOAuthHost(config.gc_region);
-    const apiHost = getApiHost(config.gc_region);
-    //updateStatus(`API Host: ${apiHost}`, 'info');
-
-    client.setEnvironment(apiHost);
+    client.setEnvironment(getApiHost(config.gc_region));
     client.setPersistSettings(true,'homesClient');
     client.setAccessToken(token);
 
@@ -194,26 +182,24 @@ if (tokenFromParent) {
     usersApi = new platformClient.UsersApi();
 
     const user = await usersApi.getUsersMe();
-    if (blockedAgentIds.includes(user.id)) {
-      updateStatus(`Agent ${user.name} is blocked.`, 'error'); return;
-    }
+    if (blockedAgentIds.includes(user.id)) return;
+
     updateStatus(`Logged in as: ${user.name}`, 'success');
 
-    // --- Create WebSocket channel for call events ---
     const channel = await notificationsApi.postNotificationsChannels();
-    const topic = `v2.users.${user.id}.conversations.calls`;
-    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id:topic}]);
+    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id:`v2.users.${user.id}.conversations.calls`}]);
     const socket = new WebSocket(channel.connectUri);
 
     socket.onopen = () => updateStatus('WebSocket connected.');
     socket.onclose = () => updateStatus('WebSocket closed.');
-    socket.onerror = (err) => { console.error(err); updateStatus('WebSocket error.','error'); };
+    socket.onerror = (err) => updateStatus('WebSocket error','error');
 
     socket.onmessage = async (evt) => {
       try {
         const data = JSON.parse(evt.data);
         const interaction = data.eventBody;
         if (!interaction) return;
+
         const participants = interaction.participants || [];
         const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
         const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
@@ -221,19 +207,33 @@ if (tokenFromParent) {
 
         if (agent.state==='connected' && popUrl && !crmTab) {
           const url = new URL(popUrl);
-url.searchParams.set('p2', user.email);
-url.searchParams.set('token', localStorage.getItem('homesToken'));
-          updateStatus(`Opening HOMES tab: ${url.toString()}`);
-          crmTab = window.open(url.toString(),'_blank');
+          url.searchParams.set('p2', user.email);
+          url.searchParams.set('token', localStorage.getItem('homesToken'));
+          crmTab = window.open(url.toString(), '_blank');
+
+          function handleReady(event) {
+            if (event.source === crmTab && event.data?.type === 'homesReady') {
+              crmTab.postMessage({
+                type: 'homesConfig',
+                config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+                token: localStorage.getItem('homesToken')
+              }, '*');
+              updateStatus('HOMES config sent to new tab.');
+              window.removeEventListener('message', handleReady);
+            }
+          }
+          window.addEventListener('message', handleReady);
+          updateStatus('Opening HOMES tab, waiting for tab readiness...');
         }
+
         if ((agent.state==='disconnected'||agent.state==='terminated') && crmTab && !crmTab.closed) {
-          updateStatus('Closing HOMES tab after wrap-up.');
-          crmTab.close(); crmTab=null;
+          crmTab.close();
+          crmTab=null;
+          updateStatus('Closed HOMES tab after wrap-up.');
         }
-      } catch(err) { console.error(err); updateStatus('Error processing interaction event','error'); }
+      } catch(err) { console.error(err); }
     };
 
-    // --- Widget lifecycle integration ---
     if(window._genesys?.widgets?.bus){
       window._genesys.widgets.bus.subscribe('lifecycle', e=>{
         if(e?.eventName==='stop'){
@@ -244,9 +244,7 @@ url.searchParams.set('token', localStorage.getItem('homesToken'));
       });
     }
 
-    // Check for any active calls on load
     checkExistingActiveCalls(user, conversationsApi, 0);
-
   } catch(err){
     console.error(err);
     updateStatus(`Initialization error: ${err.message}`,'error');
