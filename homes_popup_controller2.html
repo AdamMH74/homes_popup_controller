@@ -3,81 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HOMES Client App</title>
-  <script src="purecloud-platform-client-v2.min.js"></script>
+  <title>HOMES Client & Popup Controller</title>
+  <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
+  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
   <style>
-    body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      margin: 0;
-      padding: 20px;
-      background-color: #f8f9fa;
-      color: #333;
-    }
-    h1 {
-      color: #0052cc;
-      margin-bottom: 10px;
-    }
-    .subtitle {
-      color: #666;
-      margin-bottom: 20px;
-    }
-    #statusBox {
-      background: #ffffff;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 20px;
-      max-width: 900px;
-      max-height: 70vh;
-      overflow-y: auto;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-      line-height: 1.5;
-    }
-    #statusBox p {
-      margin: 8px 0;
-      padding: 4px 8px;
-      border-radius: 4px;
-    }
-    .error { 
-      background-color: #ffebee; 
-      color: #c62828; 
-      border-left: 4px solid #c62828;
-    }
-    .success { 
-      background-color: #e8f5e9; 
-      color: #2e7d32; 
-      border-left: 4px solid #2e7d32;
-    }
-    .info {
-      background-color: #e3f2fd;
-      color: #1565c0;
-      border-left: 4px solid #1565c0;
-    }
-    button {
-      margin-top: 15px;
-      padding: 10px 20px;
-      background-color: #0052cc;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-    }
-    button:hover {
-      background-color: #003d99;
-    }
-    .version {
-      font-size: 12px;
-      color: #888;
-      margin-top: 10px;
-    }
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; color: #333; }
+    h1 { color: #0052cc; margin-bottom: 10px; }
+    .subtitle { color: #666; margin-bottom: 20px; }
+    #statusBox { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; max-width: 900px; max-height: 70vh; overflow-y: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); line-height: 1.5; }
+    #statusBox p { margin: 8px 0; padding: 4px 8px; border-radius: 4px; }
+    .error { background-color: #ffebee; color: #c62828; border-left: 4px solid #c62828; }
+    .success { background-color: #e8f5e9; color: #2e7d32; border-left: 4px solid #2e7d32; }
+    .info { background-color: #e3f2fd; color: #1565c0; border-left: 4px solid #1565c0; }
+    button { margin-top: 15px; padding: 10px 20px; background-color: #0052cc; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    button:hover { background-color: #003d99; }
+    .version { font-size: 12px; color: #888; margin-top: 10px; }
   </style>
 </head>
 <body>
-  <h1>HOMES Client App</h1>
-  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.1.0</span></p>
+  <h1>HOMES Client & Popup Controller</h1>
+  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.2.0</span></p>
 
   <div id="statusBox">
-    <p class="info">Initializing HOMES Client App...</p>
+    <p class="info">Initializing HOMES Client & Popup Controller...</p>
   </div>
 
   <button onclick="logout()">Logout & Clear Token</button>
@@ -86,67 +34,53 @@
     SDK: purecloud-platform-client-v2 • Implicit Grant (Recommended to migrate to PKCE soon)
   </div>
 
-  <script>
-    const VERSION = '1.1.0';
+<script>
+const VERSION = '1.2.0';
+const blockedAgentIds = [
+  'a45dcb75-1121-4fb0-b956-3fb9437e539e' // Example blocked agent
+];
 
-    function updateStatus(message, type = 'info') {
-      const statusBox = document.getElementById('statusBox');
-      if (!statusBox) return;
+let crmTab = null;
+let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
+let client = platformClient?.ApiClient.instance;
+let notificationsApi = null;
+let conversationsApi = null;
+let usersApi = null;
 
-      const p = document.createElement('p');
-      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-      
-      if (type === 'error') p.classList.add('error');
-      else if (type === 'success') p.classList.add('success');
-      else p.classList.add('info');
+function updateStatus(message, type='info') {
+  const statusBox = document.getElementById('statusBox');
+  if (!statusBox) return;
+  const p = document.createElement('p');
+  p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+  p.classList.add(type);
+  statusBox.appendChild(p);
+  statusBox.scrollTop = statusBox.scrollHeight;
+  console.log(`[HOMES v${VERSION}]`, message);
+}
 
-      statusBox.appendChild(p);
-      statusBox.scrollTop = statusBox.scrollHeight;
-      console.log(`[HOMES Client v${VERSION}]`, message);
-    }
-
-    function getQueryParams() {
+function getQueryParams() {
   const params = new URLSearchParams(window.location.search);
   let gc_clientId = params.get('gc_clientId');
   let gc_region = params.get('gc_region');
   let gc_redirectUrl = params.get('gc_redirectUrl');
-
-  // Fallback: check hash
-  if (!gc_clientId || !gc_region || !gc_redirectUrl) {
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    gc_clientId = gc_clientId || hashParams.get('gc_clientId');
-    gc_region = gc_region || hashParams.get('gc_region');
-    gc_redirectUrl = gc_redirectUrl || hashParams.get('gc_redirectUrl');
-  }
-
   return { gc_clientId, gc_region, gc_redirectUrl };
 }
 
-    function normalizeRegion(region) {
-      if (!region) return null;
-      let r = region.toLowerCase().trim();
-      r = r.replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^api\./, '');
-      if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
-      if (!r.includes('mypurecloud')) return null;
-      return r;
-    }
+function normalizeRegion(region) {
+  if (!region) return null;
+  let r = region.toLowerCase().trim();
+  r = r.replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^api\./, '');
+  if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
+  if (!r.includes('mypurecloud')) return null;
+  return r;
+}
 
-    function getOAuthHost(region) {
-      const normalized = normalizeRegion(region);
-      if (!normalized) return 'login.mypurecloud.com';
-      return `login.${normalized}`;
-    }
+function getOAuthHost(region) { const n = normalizeRegion(region); return n ? `login.${n}` : 'login.mypurecloud.com'; }
+function getApiHost(region) { const n = normalizeRegion(region); return n ? `api.${n}` : 'api.mypurecloud.com'; }
 
-    function getApiHost(region) {
-      const normalized = normalizeRegion(region);
-      if (!normalized) return 'api.mypurecloud.com';
-      return `api.${normalized}`;
-    }
-
-    function parseHashToken() {
+function parseHashToken() {
   const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
   const params = new URLSearchParams(hash);
-
   let token = params.get('access_token');
   let expiresIn = params.get('expires_in');
   let tokenType = params.get('token_type');
@@ -154,153 +88,146 @@
   if (token) {
     token = decodeURIComponent(token);
     localStorage.setItem('homesToken', token);
-    localStorage.setItem('homesTokenExpires', Date.now() + parseInt(expiresIn, 10) * 1000);
+    localStorage.setItem('homesTokenExpires', Date.now() + parseInt(expiresIn,10)*1000);
     localStorage.setItem('homesTokenType', tokenType);
   } else if (localStorage.getItem('homesToken')) {
     token = localStorage.getItem('homesToken');
-    expiresIn = Math.max(0, (localStorage.getItem('homesTokenExpires') - Date.now()) / 1000);
+    expiresIn = Math.max(0,(localStorage.getItem('homesTokenExpires') - Date.now())/1000);
     tokenType = localStorage.getItem('homesTokenType');
   }
 
   return { token, expiresIn, tokenType };
 }
 
-    async function initClientApp() {
-  //updateStatus(`Full URL: ${window.location.href}`, 'info');
-  //updateStatus(`Window hash: ${window.location.hash}`, 'info');
-
-  // 1️⃣ Get query params
-  let config = getQueryParams();
-
-  // 2️⃣ Parse token from hash (and store in localStorage)
-  const { token, expiresIn, tokenType } = parseHashToken();
-
-// 3️⃣ Restore query params if missing after OAuth redirect
-if ((!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) && localStorage.getItem('homesConfig')) {
-  const storedConfig = JSON.parse(localStorage.getItem('homesConfig'));
-  config.gc_clientId = storedConfig.gc_clientId;
-  config.gc_region = storedConfig.gc_region;
-  config.gc_redirectUrl = storedConfig.gc_redirectUrl;
-  updateStatus('🔄 Restored configuration from localStorage after OAuth redirect', 'info');
-}
-
-// 4️⃣ If token exists, store current query params for next time
-if (token) {
-  localStorage.setItem('homesConfig', JSON.stringify(config));
-
-  // Clean the URL hash so token is not visible
-  if (window.location.hash.includes('access_token')) {
-    history.replaceState(null, '', window.location.pathname + window.location.search);
+async function checkExistingActiveCalls(user, conversationsApi, checkCounter=0) {
+  const existingCallMaxChecks = 20;
+  const existingCallCheckInterval = 2500;
+  if (checkCounter > existingCallMaxChecks) {
+    updateStatus('Call control: Maximum number of checks reached.');
+    return;
   }
-}
-
-  // 5️⃣ If query params missing (e.g., page reload), fallback to stored config
-  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-    const storedConfig = localStorage.getItem('homesConfig');
-    if (storedConfig) {
-      config = JSON.parse(storedConfig);
-      updateStatus('🔄 Restored configuration from localStorage', 'info');
+  const activeCalls = await conversationsApi.getConversationsCalls();
+  if (!activeCalls?.entities || activeCalls.entities.length===0) {
+    await new Promise(r=>setTimeout(r, existingCallCheckInterval));
+    return checkExistingActiveCalls(user, conversationsApi, checkCounter+1);
+  }
+  for (const call of activeCalls.entities) {
+    const participants = call.participants || [];
+    const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
+    const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
+    if (agent?.state==='connected' && popUrl && !crmTab) {
+      const url = new URL(popUrl); url.searchParams.set('p2', user.email);
+      updateStatus(`Opening HOMES tab from existing call: ${url.toString()}`);
+      crmTab = window.open(url.toString(),'_blank');
     }
   }
+}
 
-  //updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
-
-  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-    updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
-    return;
-  }
-
-  const oauthHost = getOAuthHost(config.gc_region);
-  const apiHost = getApiHost(config.gc_region);
-  //updateStatus(`Original region: ${config.gc_region}`, 'info');
-  //updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
-  //updateStatus(`OAuth Host: ${oauthHost}`, 'info');
-  //updateStatus(`API Host: ${apiHost}`, 'info');
-
-  let platformClient = window.platformClient;
-  if (!platformClient && window.require) {
-    try { platformClient = window.require('platformClient'); } 
-    catch (e) { console.error('Require failed:', e); }
-  }
-  if (!platformClient) {
-    updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
-    return;
-  }
-
-  const client = platformClient.ApiClient.instance;
-  client.setEnvironment(apiHost);
-  client.setPersistSettings(true, 'homesClient');
-
-  if (!token) {
-    updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
-
-    const oauthUrl = `https://${oauthHost}/oauth/authorize` +
-                     `?response_type=token` +
-                     `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-                     `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-
-    updateStatus(`OAuth URL: ${oauthUrl}`, 'info');
-
-    // --- OAuth troubleshooting checklist ---
-    updateStatus('⚠️ Token missing checklist:', 'info');
-    updateStatus('1. Ensure your OAuth client in Genesys Cloud has "Implicit Grant" enabled.', 'info');
-    updateStatus('2. Ensure the Redirect URI exactly matches this app\'s URL, including protocol, domain, path, and trailing slash if any.', 'info');
-    updateStatus('3. If using a browser with extensions, try in a private/incognito window to avoid hash stripping.', 'info');
-    updateStatus('4. After login, check that the URL contains #access_token=...', 'info');
-
-    window.location.href = oauthUrl;
-    return;
-  }
-
-  updateStatus('✅ Access token retrieved from URL fragment', 'success');
-  client.setAccessToken(token);
-
+async function init() {
   try {
-    const usersApi = new platformClient.UsersApi();
-    const me = await usersApi.getUsersMe();
-    updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
+    // 1️⃣ Get query params
+    let config = getQueryParams();
+    const { token, expiresIn } = parseHashToken();
 
-    //const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
-    //updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
-    //displayUsers(response.entities);
-
-  } catch (err) {
-    console.error(err);
-    updateStatus(`❌ API Error: ${err.message || err}`, 'error');
-    if (err.status === 401 || err.status === 403) {
-      updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
+    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+      const stored = JSON.parse(localStorage.getItem('homesConfig')||'{}');
+      config.gc_clientId = config.gc_clientId || stored.gc_clientId;
+      config.gc_region = config.gc_region || stored.gc_region;
+      config.gc_redirectUrl = config.gc_redirectUrl || stored.gc_redirectUrl;
+      updateStatus('Restored configuration from localStorage', 'info');
     }
-  }
-}
 
-    function displayUsers(users) {
-      if (!users || users.length === 0) {
-        updateStatus('No users returned.', 'info');
-        return;
-      }
+    if (!token || expiresIn<=0) {
+      const oauthHost = getOAuthHost(config.gc_region);
+      const oauthUrl = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+      updateStatus('Redirecting to Genesys Cloud login...', 'error');
+      window.location.href = oauthUrl; return;
+    }
 
-      updateStatus(`📋 Retrieved ${users.length} user(s):`, 'success');
+    localStorage.setItem('homesConfig', JSON.stringify(config));
 
-      users.forEach(user => {
-        const name = user.name || 'N/A';
-        const email = user.email || user.username || 'N/A';
-        const title = user.title ? ` - ${user.title}` : '';
-        const presence = user.presence ? ` [${user.presence.presenceDefinition?.systemPresence || 'Unknown'}]` : '';
-        
-        updateStatus(` • ${name} (${email})${title}${presence}`);
+    const oauthHost = getOAuthHost(config.gc_region);
+    const apiHost = getApiHost(config.gc_region);
+    updateStatus(`API Host: ${apiHost}`, 'info');
+
+    client.setEnvironment(apiHost);
+    client.setPersistSettings(true,'homesClient');
+    client.setAccessToken(token);
+
+    notificationsApi = new platformClient.NotificationsApi();
+    conversationsApi = new platformClient.ConversationsApi();
+    usersApi = new platformClient.UsersApi();
+
+    const user = await usersApi.getUsersMe();
+    if (blockedAgentIds.includes(user.id)) {
+      updateStatus(`Agent ${user.name} is blocked.`, 'error'); return;
+    }
+    updateStatus(`Logged in as: ${user.name}`, 'success');
+
+    // --- Create WebSocket channel for call events ---
+    const channel = await notificationsApi.postNotificationsChannels();
+    const topic = `v2.users.${user.id}.conversations.calls`;
+    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id:topic}]);
+    const socket = new WebSocket(channel.connectUri);
+
+    socket.onopen = () => updateStatus('WebSocket connected.');
+    socket.onclose = () => updateStatus('WebSocket closed.');
+    socket.onerror = (err) => { console.error(err); updateStatus('WebSocket error.','error'); };
+
+    socket.onmessage = async (evt) => {
+      try {
+        const data = JSON.parse(evt.data);
+        const interaction = data.eventBody;
+        if (!interaction) return;
+        const participants = interaction.participants || [];
+        const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
+        const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
+        if (!agent) return;
+
+        if (agent.state==='connected' && popUrl && !crmTab) {
+          const url = new URL(popUrl); url.searchParams.set('p2', user.email);
+          updateStatus(`Opening HOMES tab: ${url.toString()}`);
+          crmTab = window.open(url.toString(),'_blank');
+        }
+        if ((agent.state==='disconnected'||agent.state==='terminated') && crmTab && !crmTab.closed) {
+          updateStatus('Closing HOMES tab after wrap-up.');
+          crmTab.close(); crmTab=null;
+        }
+      } catch(err) { console.error(err); updateStatus('Error processing interaction event','error'); }
+    };
+
+    // --- Widget lifecycle integration ---
+    if(window._genesys?.widgets?.bus){
+      window._genesys.widgets.bus.subscribe('lifecycle', e=>{
+        if(e?.eventName==='stop'){
+          if(crmTab && !crmTab.closed) crmTab.close(); crmTab=null;
+          if(socket && socket.readyState===WebSocket.OPEN) socket.close();
+          updateStatus('Closed CRM tab and WebSocket due to widget stop.');
+        }
       });
     }
 
-    function logout() {
-      if (confirm('Clear token and logout?')) {
-        const client = window.platformClient?.ApiClient.instance;
-        if (client) client.logout();
-        window.location.hash = '';
-        window.location.reload();
-      }
-    }
+    // Check for any active calls on load
+    checkExistingActiveCalls(user, conversationsApi, 0);
 
-    window.onload = initClientApp;
-  </script>
+  } catch(err){
+    console.error(err);
+    updateStatus(`Initialization error: ${err.message}`,'error');
+  }
+}
+
+function logout(){
+  if(confirm('Clear token and logout?')){
+    if(client) client.logout();
+    localStorage.removeItem('homesToken');
+    localStorage.removeItem('homesTokenExpires');
+    localStorage.removeItem('homesTokenType');
+    localStorage.removeItem('homesConfig');
+    window.location.hash=''; window.location.reload();
+  }
+}
+
+window.onload = init;
+</script>
 </body>
 </html>
