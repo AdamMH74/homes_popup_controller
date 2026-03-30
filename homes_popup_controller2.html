@@ -175,15 +175,24 @@
   // 2️⃣ Parse token from hash (and store in localStorage)
   const { token, expiresIn, tokenType } = parseHashToken();
 
-  // 3️⃣ Store query params in localStorage if token exists
-  if (token) {
-    localStorage.setItem('homesConfig', JSON.stringify(config));
+// 3️⃣ Restore query params if missing after OAuth redirect
+if ((!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) && localStorage.getItem('homesConfig')) {
+  const storedConfig = JSON.parse(localStorage.getItem('homesConfig'));
+  config.gc_clientId = storedConfig.gc_clientId;
+  config.gc_region = storedConfig.gc_region;
+  config.gc_redirectUrl = storedConfig.gc_redirectUrl;
+  updateStatus('🔄 Restored configuration from localStorage after OAuth redirect', 'info');
+}
 
-    // 4️⃣ Clean hash from URL so token is not visible
-    if (window.location.hash.includes('access_token')) {
-      history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
+// 4️⃣ If token exists, store current query params for next time
+if (token) {
+  localStorage.setItem('homesConfig', JSON.stringify(config));
+
+  // Clean the URL hash so token is not visible
+  if (window.location.hash.includes('access_token')) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
   }
+}
 
   // 5️⃣ If query params missing (e.g., page reload), fallback to stored config
   if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
