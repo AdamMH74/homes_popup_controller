@@ -46,9 +46,6 @@
       background-color: #6c757d;
       cursor: not-allowed;
     }
-    .status-line {
-      color: #555;
-    }
     .highlight {
       color: #007bff;
       font-weight: 600;
@@ -57,13 +54,13 @@
 </head>
 <body>
   <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.0.6...</p>
+    <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.0.7...</p>
   </div>
   
   <button id="openButton" disabled>Open HOMES CRM</button>
 
   <script>
-    const VERSION = '1.0.6';
+    const VERSION = '1.0.7';
     const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 
     let crmTab = null;
@@ -77,7 +74,7 @@
 
     const updateStatus = (message, isHighlight = false) => {
       const p = document.createElement('p');
-      p.className = isHighlight ? 'highlight' : 'status-line';
+      p.className = isHighlight ? 'highlight' : '';
       p.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
       statusBox.appendChild(p);
       statusBox.scrollTop = statusBox.scrollHeight;
@@ -86,45 +83,42 @@
 
     const openHOMES = () => {
       if (!currentPopUrl) {
-        updateStatus('No HOMES URL available', true);
+        updateStatus('No HOMES URL available yet. Wait for a call to be connected.', true);
         return;
       }
 
       try {
         const url = new URL(currentPopUrl);
-        if (userEmail) url.searchParams.set('p2', userEmail);
+        if (userEmail) {
+          url.searchParams.set('p2', userEmail);
+        }
 
+        // Open or refresh the tab
         if (crmTab && !crmTab.closed) {
           crmTab.location.href = url.toString();
+          updateStatus('HOMES CRM tab refreshed', true);
         } else {
           crmTab = window.open(url.toString(), 'HOMES_CRM');
+          updateStatus('✅ HOMES CRM opened in new tab', true);
         }
 
         openButton.disabled = true;
-        updateStatus('HOMES CRM tab opened/updated', true);
       } catch (err) {
-        updateStatus('Invalid HOMES URL – cannot open tab', true);
+        updateStatus('Error: Invalid HOMES URL', true);
         console.error(err);
-      }
-    };
-
-    const openPlaceholderTab = () => {
-      if (!crmTab || crmTab.closed) {
-        crmTab = window.open('about:blank', 'HOMES_CRM');
-        updateStatus('Placeholder tab opened for better UX');
       }
     };
 
     const closeCRMTab = () => {
       if (crmTab && !crmTab.closed) {
         crmTab.close();
-        crmTab = null;
       }
+      crmTab = null;
       currentPopUrl = null;
       openButton.disabled = true;
     };
 
-    // Store Genesys Cloud configuration from URL parameters
+    // Store Genesys Cloud configuration
     const initialiseAndStorePluginConfiguration = () => {
       const params = new URLSearchParams(window.location.search);
       const keys = ['gc_clientId', 'gc_region', 'gc_redirectUrl', 'gcHostOrigin', 'gcTargetEnv'];
@@ -145,30 +139,28 @@
 
     async function initialize(client) {
       try {
-        // Get current user
         me = await client.get('/api/v2/users/me');
         userEmail = me.email;
 
-        updateStatus(`Logged in as: <strong>${me.name}</strong> (${userEmail})`, true);
+        updateStatus(`Logged in as: <strong>${me.name}</strong>`, true);
 
         if (BLOCKED_AGENT_IDS.includes(me.id)) {
           updateStatus('❌ This agent is blocked from using the HOMES widget', true);
-          openButton.disabled = true;
           return;
         }
 
-        // Create notification channel
+        // Setup notification channel for calls
         const channel = await client.post('/api/v2/notifications/channels');
         const topic = `v2.users.${me.id}.conversations.calls`;
 
         await client.put(`/api/v2/notifications/channels/${channel.id}/subscriptions`, [{ id: topic }]);
 
-        // Setup WebSocket
+        // WebSocket for real-time call events
         socket = new WebSocket(channel.connectUri);
 
-        socket.onopen = () => updateStatus('WebSocket connected successfully');
-        socket.onclose = () => updateStatus('WebSocket connection closed');
-        socket.onerror = () => updateStatus('WebSocket error occurred');
+        socket.onopen = () => updateStatus('WebSocket connected');
+        socket.onclose = () => updateStatus('WebSocket closed');
+        socket.onerror = () => updateStatus('WebSocket error');
 
         socket.onmessage = (event) => {
           try {
@@ -182,30 +174,29 @@
 
             if (!agentPart) return;
 
-            // Find screen pop URL
             const popUrl = participants
               .map(p => p.attributes?.UD_ScreenPop_URL)
-              .find(url => url && url.startsWith('http'));
+              .find(u => u && u.startsWith('http'));
 
             if (agentPart.state === 'connected' && popUrl) {
               currentPopUrl = popUrl;
               openButton.disabled = false;
-              updateStatus('✅ Call connected – HOMES button enabled', true);
+              updateStatus('✅ Call connected – Click the button to open HOMES CRM', true);
             }
 
-            // Close tab when call ends + wrap-up starts
+            // Close logic when call ends
             if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') 
                 && agentPart.wrapup) {
-              updateStatus('Call ended – closing HOMES tab');
+              updateStatus('Call ended – HOMES tab will close on next open if needed');
               closeCRMTab();
             }
           } catch (e) {
-            console.error('Error processing WebSocket message:', e);
+            console.error('WebSocket message error:', e);
           }
         };
 
       } catch (err) {
-        updateStatus(`Initialization failed: ${err.message}`, true);
+        updateStatus(`Initialization error: ${err.message}`, true);
         console.error(err);
       }
     }
@@ -221,38 +212,28 @@
     });
 
     myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus('Application bootstrapped');
-      openPlaceholderTab();
-
-      const waitForClient = () => {
-        if (myClientApp.client) {
-          initialize(myClientApp.client);
-        } else {
-          setTimeout(waitForClient, 100);
-        }
-      };
-      waitForClient();
-
+      updateStatus('Application bootstrapped successfully');
       myClientApp.lifecycle.bootstrapped();
     });
 
     myClientApp.lifecycle.addStopListener(() => {
       updateStatus('Application stopping...');
       closeCRMTab();
-      if (socket?.readyState === WebSocket.OPEN) socket.close();
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
       myClientApp.lifecycle.stopped();
     });
 
-    // Cleanup on page unload
+    // Cleanup
     window.addEventListener('beforeunload', () => {
       closeCRMTab();
-      if (socket?.readyState === WebSocket.OPEN) socket.close();
+      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
     });
 
-    // Button handler
+    // Button click handler
     openButton.addEventListener('click', openHOMES);
 
-    updateStatus(`HOMES Popup Controller v${VERSION} initialized and ready`);
+    updateStatus(`HOMES Popup Controller v${VERSION} ready`);
+    updateStatus('Waiting for an active call to enable the Open HOMES CRM button...');
   </script>
 </body>
 </html>
