@@ -166,81 +166,103 @@
 }
 
     async function initClientApp() {
-      updateStatus(`Full URL: ${window.location.href}`, 'info');
-      updateStatus(`Window hash: ${window.location.hash}`, 'info');
+  updateStatus(`Full URL: ${window.location.href}`, 'info');
+  updateStatus(`Window hash: ${window.location.hash}`, 'info');
 
-      const config = getQueryParams();
-      updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`, 'info');
+  // 1️⃣ Get query params
+  let config = getQueryParams();
 
-      if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-        updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
-        return;
-      }
+  // 2️⃣ Parse token from hash (and store in localStorage)
+  const { token, expiresIn, tokenType } = parseHashToken();
 
-      const oauthHost = getOAuthHost(config.gc_region);
-      const apiHost = getApiHost(config.gc_region);
-      updateStatus(`Original region: ${config.gc_region}`, 'info');
-      updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
-      updateStatus(`OAuth Host: ${oauthHost}`, 'info');
-      updateStatus(`API Host: ${apiHost}`, 'info');
+  // 3️⃣ Store query params in localStorage if token exists
+  if (token) {
+    localStorage.setItem('homesConfig', JSON.stringify(config));
 
-      let platformClient = window.platformClient;
-      if (!platformClient && window.require) {
-        try { platformClient = window.require('platformClient'); } 
-        catch (e) { console.error('Require failed:', e); }
-      }
-      if (!platformClient) {
-        updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
-        return;
-      }
-
-      const client = platformClient.ApiClient.instance;
-      client.setEnvironment(apiHost);
-      client.setPersistSettings(true, 'homesClient');
-
-      const { token, expiresIn, tokenType } = parseHashToken();
-updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
-      if (!token) {
-        updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
-
-        const oauthUrl = `https://${oauthHost}/oauth/authorize` +
-                         `?response_type=token` +
-                         `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-                         `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
-
-        updateStatus(`OAuth URL: ${oauthUrl}`, 'info');
-
-        // --- OAuth troubleshooting checklist ---
-        updateStatus('⚠️ Token missing checklist:', 'info');
-        updateStatus('1. Ensure your OAuth client in Genesys Cloud has "Implicit Grant" enabled.', 'info');
-        updateStatus('2. Ensure the Redirect URI exactly matches this app\'s URL, including protocol, domain, path, and trailing slash if any.', 'info');
-        updateStatus('3. If using a browser with extensions, try in a private/incognito window to avoid hash stripping.', 'info');
-        updateStatus('4. After login, check that the URL contains #access_token=...', 'info');
-
-        window.location.href = oauthUrl;
-        return;
-      }
-
-      updateStatus('✅ Access token retrieved from URL fragment', 'success');
-      client.setAccessToken(token);
-
-      try {
-        const usersApi = new platformClient.UsersApi();
-        const me = await usersApi.getUsersMe();
-        updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
-
-        const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
-        updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
-        displayUsers(response.entities);
-
-      } catch (err) {
-        console.error(err);
-        updateStatus(`❌ API Error: ${err.message || err}`, 'error');
-        if (err.status === 401 || err.status === 403) {
-          updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
-        }
-      }
+    // 4️⃣ Clean hash from URL so token is not visible
+    if (window.location.hash.includes('access_token')) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
     }
+  }
+
+  // 5️⃣ If query params missing (e.g., page reload), fallback to stored config
+  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+    const storedConfig = localStorage.getItem('homesConfig');
+    if (storedConfig) {
+      config = JSON.parse(storedConfig);
+      updateStatus('🔄 Restored configuration from localStorage', 'info');
+    }
+  }
+
+  updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
+
+  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+    updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
+    return;
+  }
+
+  const oauthHost = getOAuthHost(config.gc_region);
+  const apiHost = getApiHost(config.gc_region);
+  updateStatus(`Original region: ${config.gc_region}`, 'info');
+  updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
+  updateStatus(`OAuth Host: ${oauthHost}`, 'info');
+  updateStatus(`API Host: ${apiHost}`, 'info');
+
+  let platformClient = window.platformClient;
+  if (!platformClient && window.require) {
+    try { platformClient = window.require('platformClient'); } 
+    catch (e) { console.error('Require failed:', e); }
+  }
+  if (!platformClient) {
+    updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
+    return;
+  }
+
+  const client = platformClient.ApiClient.instance;
+  client.setEnvironment(apiHost);
+  client.setPersistSettings(true, 'homesClient');
+
+  if (!token) {
+    updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
+
+    const oauthUrl = `https://${oauthHost}/oauth/authorize` +
+                     `?response_type=token` +
+                     `&client_id=${encodeURIComponent(config.gc_clientId)}` +
+                     `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+
+    updateStatus(`OAuth URL: ${oauthUrl}`, 'info');
+
+    // --- OAuth troubleshooting checklist ---
+    updateStatus('⚠️ Token missing checklist:', 'info');
+    updateStatus('1. Ensure your OAuth client in Genesys Cloud has "Implicit Grant" enabled.', 'info');
+    updateStatus('2. Ensure the Redirect URI exactly matches this app\'s URL, including protocol, domain, path, and trailing slash if any.', 'info');
+    updateStatus('3. If using a browser with extensions, try in a private/incognito window to avoid hash stripping.', 'info');
+    updateStatus('4. After login, check that the URL contains #access_token=...', 'info');
+
+    window.location.href = oauthUrl;
+    return;
+  }
+
+  updateStatus('✅ Access token retrieved from URL fragment', 'success');
+  client.setAccessToken(token);
+
+  try {
+    const usersApi = new platformClient.UsersApi();
+    const me = await usersApi.getUsersMe();
+    updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
+
+    const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
+    updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
+    displayUsers(response.entities);
+
+  } catch (err) {
+    console.error(err);
+    updateStatus(`❌ API Error: ${err.message || err}`, 'error');
+    if (err.status === 401 || err.status === 403) {
+      updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
+    }
+  }
+}
 
     function displayUsers(users) {
       if (!users || users.length === 0) {
