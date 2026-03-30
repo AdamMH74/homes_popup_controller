@@ -131,32 +131,31 @@
         socket.onerror = () => updateStatus('WebSocket error', 'warning');
 
         socket.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (!data.eventBody?.participants) return;
+  try {
+    const data = JSON.parse(event.data);
+    console.log('WebSocket event:', data); // debug
 
-            const participants = data.eventBody.participants;
-            const agentPart = participants.find(p => p.purpose === 'agent' && p.user?.id === me.id);
-            if (!agentPart) return;
+    const participants = data.eventBody?.participants || data.eventBody?.conversation?.participants;
+    if (!participants) return;
 
-            const popUrl = participants
-              .map(p => p.attributes?.UD_ScreenPop_URL)
-              .find(u => u && u.startsWith('http'));
+    const agentPart = participants.find(p => p.user?.id === me.id && p.purpose === 'agent');
+    if (!agentPart) return;
 
-            if (agentPart.state === 'connected' && popUrl) {
-              currentPopUrl = popUrl;
-              openButton.disabled = false;
-              updateStatus('✅ Call connected! Button is now enabled. Click to open HOMES CRM.', 'success');
-            }
+    const popUrl = agentPart.attributes?.UD_ScreenPop_URL;
+    if (popUrl && popUrl.startsWith('http') && (agentPart.state === 'connected' || agentPart.state === 'alerting')) {
+      currentPopUrl = popUrl;
+      openButton.disabled = false;
+      updateStatus('✅ Call incoming or connected! Button enabled.', 'success');
+    }
 
-            if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') && agentPart.wrapup) {
-              updateStatus('Call ended – ready for next call');
-              closeCRMTab();
-            }
-          } catch (e) {
-            console.error(e);
-          }
-        };
+    if (['disconnected','terminated'].includes(agentPart.state) && agentPart.wrapup) {
+      updateStatus('Call ended – ready for next call');
+      closeCRMTab();
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
 
       } catch (err) {
         updateStatus(`Initialization failed: ${err.message}`, 'warning');
