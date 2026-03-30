@@ -195,15 +195,6 @@
     updateStatus(`❌ API Error: ${err.message || err}`, 'error');
   }
 }
-✅ Changes Made:
-Removed the loop that fetches all users.
-Only calls getUsersMe() and logs the authenticated user.
-Preserves presence info if available.
-Keeps status messages for clarity.
-
-This way, your #statusBox will only show the current logged-in user, no one else.
-
-If you want, I can also make it look nicer in a small card layout instead of a plain log line. Do you want me to do that?
 
     function logout() {
       if (confirm('Clear token and logout?')) {
