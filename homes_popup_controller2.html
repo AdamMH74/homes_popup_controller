@@ -55,7 +55,7 @@
 </head>
 <body>
   <h1>HOMES Client & Popup Controller</h1>
-  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.3.0</span></p>
+  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.3.1</span></p>
 
   <div id="statusBox">
     <p class="info">Initializing HOMES Client & Popup Controller...</p>
@@ -68,7 +68,7 @@
   </div>
 
 <script>
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 
 let crmTab = null;
@@ -81,6 +81,9 @@ let usersApi = null;
 
 let currentUser = null;
 let notificationSocket = null;
+
+let lastPopUrl = null;      // Prevent duplicate screen pops for the same URL
+let isOpeningTab = false;   // Debounce flag
 
 function updateStatus(message, type = 'info') {
   const statusBox = document.getElementById('statusBox');
@@ -145,7 +148,6 @@ function parseHashToken() {
     localStorage.setItem('homesTokenExpires', expiry);
     localStorage.setItem('homesTokenType', tokenType || 'bearer');
   } else {
-    // Try to restore from localStorage
     token = localStorage.getItem('homesToken');
     const storedExpiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
 
@@ -162,17 +164,31 @@ function parseHashToken() {
 // ====================== Screen Pop Handling ======================
 
 function openHOMESTab(popUrl, userEmail, token) {
-  if (crmTab && !crmTab.closed) {
-    updateStatus('HOMES tab already open', 'warning');
+  if (!popUrl) return;
+
+  // Prevent duplicate for the same URL
+  if (popUrl === lastPopUrl) {
+    updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
     return;
   }
 
+  // Prevent multiple simultaneous attempts
+  if (isOpeningTab || (crmTab && !crmTab.closed)) {
+    updateStatus('HOMES tab is already open or being opened - skipping', 'warning');
+    return;
+  }
+
+  isOpeningTab = true;
+  lastPopUrl = popUrl;
+
   try {
     const url = new URL(popUrl);
-    url.searchParams.set('p2', userEmail);
+    url.searchParams.set('p2', userEmail || '');
     if (token) url.searchParams.set('token', token);
 
     crmTab = window.open(url.toString(), '_blank');
+
+    updateStatus('Opening HOMES CRM tab...', 'info');
 
     const handleReady = (event) => {
       if (event.source === crmTab && event.data?.type === 'homesReady') {
@@ -180,26 +196,35 @@ function openHOMESTab(popUrl, userEmail, token) {
           type: 'homesConfig',
           config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
           token: localStorage.getItem('homesToken')
-        }, '*');   // Consider restricting origin in production
+        }, '*');
 
-        updateStatus('HOMES config sent to CRM tab successfully.');
+        updateStatus('HOMES config sent to CRM tab.', 'success');
         window.removeEventListener('message', handleReady);
       }
     };
 
     window.addEventListener('message', handleReady);
 
-    updateStatus('Opening HOMES CRM tab...');
+    // Reset debounce flag after reasonable time
+    setTimeout(() => {
+      isOpeningTab = false;
+    }, 10000);
+
   } catch (err) {
+    isOpeningTab = false;
     updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
   }
 }
 
+// ====================== Existing Calls Check ======================
+
 async function checkExistingActiveCalls(user) {
-  if (!conversationsApi) return;
+  if (!conversationsApi || !user) return;
+
+  updateStatus('Checking for existing active calls...', 'info');
 
   let attempts = 0;
-  const maxAttempts = 15;
+  const maxAttempts = 12;
 
   while (attempts < maxAttempts) {
     try {
@@ -209,20 +234,28 @@ async function checkExistingActiveCalls(user) {
       for (const call of calls) {
         const participants = call.participants || [];
         const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-        const popUrl = participants.flatMap(p => p.attributes?.UD_ScreenPop_URL || []).find(Boolean);
+        
+        if (agent?.state !== 'connected') continue;
 
-        if (agent?.state === 'connected' && popUrl && !crmTab) {
+        const popUrl = participants
+          .map(p => p.attributes?.UD_ScreenPop_URL)
+          .find(url => url);
+
+        if (popUrl) {
+          updateStatus('Found existing active call with screen pop URL', 'info');
           openHOMESTab(popUrl, user.email, localStorage.getItem('homesToken'));
-          return;
+          return;   // Stop checking once we open a tab
         }
       }
     } catch (err) {
       console.warn('Error checking active calls:', err);
     }
 
-    await new Promise(r => setTimeout(r, 2200));
+    await new Promise(r => setTimeout(r, 2500));
     attempts++;
   }
+
+  updateStatus('No active calls with screen pop found.', 'info');
 }
 
 // ====================== Main Initialization ======================
@@ -234,7 +267,6 @@ async function init() {
     const config = getQueryParams();
     let { token, expiresIn } = parseHashToken();
 
-    // Token from parent window (embedded scenario)
     const tokenFromParent = new URLSearchParams(window.location.search).get('token');
     if (tokenFromParent) {
       token = tokenFromParent;
@@ -244,7 +276,6 @@ async function init() {
       updateStatus('Token received from parent window', 'success');
     }
 
-    // Fallback to stored config
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
       const stored = JSON.parse(localStorage.getItem('homesConfig') || '{}');
       Object.assign(config, {
@@ -259,21 +290,17 @@ async function init() {
       return;
     }
 
-    // Redirect to login if no valid token
     if (!token || expiresIn <= 30) {
       const oauthHost = getOAuthHost(config.gc_region);
       const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
       updateStatus('No valid token found — redirecting to Genesys Cloud login...', 'info');
-
       window.location.href = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${redirectUri}`;
       return;
     }
 
-    // Save config
     localStorage.setItem('homesConfig', JSON.stringify(config));
 
-    // Setup SDK
     client.setEnvironment(getApiHost(config.gc_region));
     client.setPersistSettings(true, 'homesClient');
     client.setAccessToken(token);
@@ -291,7 +318,7 @@ async function init() {
 
     updateStatus(`Logged in successfully as: ${currentUser.name} (${currentUser.email})`, 'success');
 
-    // Setup Notifications Channel
+    // Setup Notifications
     const channel = await notificationsApi.postNotificationsChannels();
     await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [
       { id: `v2.users.${currentUser.id}.conversations.calls` }
@@ -315,13 +342,14 @@ async function init() {
 
         if (!agent) return;
 
-        if (agent.state === 'connected' && popUrl && !crmTab) {
+        if (agent.state === 'connected' && popUrl) {
           openHOMESTab(popUrl, currentUser.email, token);
         }
 
         if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab && !crmTab.closed) {
           crmTab.close();
           crmTab = null;
+          lastPopUrl = null;           // Reset so new calls can pop again
           updateStatus('Closed HOMES tab after call ended.', 'info');
         }
       } catch (err) {
@@ -329,7 +357,7 @@ async function init() {
       }
     };
 
-    // Check for already active calls
+    // Check for already active calls on load
     await checkExistingActiveCalls(currentUser);
 
     updateStatus('HOMES Client initialized successfully.', 'success');
