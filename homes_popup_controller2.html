@@ -105,7 +105,6 @@
       console.log(`[HOMES Client v${VERSION}]`, message);
     }
 
-    // Parse URL query parameters
     function getQueryParams() {
       const params = new URLSearchParams(window.location.search);
       return {
@@ -118,45 +117,40 @@
     }
 
     function normalizeRegion(region) {
-  if (!region) return null;
+      if (!region) return null;
+      let r = region.toLowerCase().trim();
+      r = r.replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^apps\./, '');
+      if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
+      if (!r.includes('mypurecloud')) return null;
+      return r;
+    }
 
-  let r = region.toLowerCase().trim();
+    function getOAuthHost(region) {
+      const normalized = normalizeRegion(region);
+      if (!normalized) return 'login.mypurecloud.com';
+      return `login.${normalized}`;
+    }
 
-  r = r.replace(/^https?:\/\//, '');
-  r = r.replace(/^login\./, '');
-  r = r.replace(/^apps\./, '');
-
-  if (r.startsWith('purecloud.')) {
-    r = 'mypurecloud.' + r.split('purecloud.')[1];
-  }
-
-  // Basic sanity check
-  if (!r.includes('mypurecloud')) {
-    return null;
-  }
-
-  return r;
-}
-
-function getOAuthHost(region) {
-  const normalized = normalizeRegion(region);
-  if (!normalized) return 'login.mypurecloud.com';
-  return `login.${normalized}`;
-}
-
-function getApiHost(region) {
-  const normalized = normalizeRegion(region);
-  if (!normalized) return 'apps.mypurecloud.com';
-  return `apps.${normalized}`;
-}
+    function getApiHost(region) {
+      const normalized = normalizeRegion(region);
+      if (!normalized) return 'apps.mypurecloud.com';
+      return `apps.${normalized}`;
+    }
 
     function parseHashToken() {
       const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
-      return params.get('access_token');
+      return {
+        token: params.get('access_token'),
+        expiresIn: params.get('expires_in'),
+        tokenType: params.get('token_type')
+      };
     }
 
     async function initClientApp() {
+      updateStatus(`Full URL: ${window.location.href}`, 'info');
+      updateStatus(`Window hash: ${window.location.hash}`, 'info');
+
       const config = getQueryParams();
       updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`, 'info');
 
@@ -167,40 +161,44 @@ function getApiHost(region) {
 
       const oauthHost = getOAuthHost(config.gc_region);
       const apiHost = getApiHost(config.gc_region);
-	    updateStatus(`Original region: ${config.gc_region}`, 'info');
-		updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
-		updateStatus(`OAuth Host: ${oauthHost}`, 'info');
-		updateStatus(`API Host: ${apiHost}`, 'info');
+      updateStatus(`Original region: ${config.gc_region}`, 'info');
+      updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
+      updateStatus(`OAuth Host: ${oauthHost}`, 'info');
+      updateStatus(`API Host: ${apiHost}`, 'info');
 
-      // Use global SDK (more reliable in browser)
       let platformClient = window.platformClient;
-
-if (!platformClient && window.require) {
-  try {
-    platformClient = window.require('platformClient');
-  } catch (e) {
-    console.error('Require failed:', e);
-  }
-}
-
-if (!platformClient) {
-  updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
-  return;
-}
+      if (!platformClient && window.require) {
+        try { platformClient = window.require('platformClient'); } 
+        catch (e) { console.error('Require failed:', e); }
+      }
+      if (!platformClient) {
+        updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
+        return;
+      }
 
       const client = platformClient.ApiClient.instance;
       client.setEnvironment(apiHost);
       client.setPersistSettings(true, 'homesClient');
 
-      const token = parseHashToken();
+      const { token, expiresIn, tokenType } = parseHashToken();
+      updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
 
       if (!token) {
-        updateStatus('No access token found. Redirecting to Genesys Cloud login...', 'info');
-        
+        updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
+
         const oauthUrl = `https://${oauthHost}/oauth/authorize` +
-          `?response_type=token` +
-          `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-          `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+                         `?response_type=token` +
+                         `&client_id=${encodeURIComponent(config.gc_clientId)}` +
+                         `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+
+        updateStatus(`OAuth URL: ${oauthUrl}`, 'info');
+
+        // --- OAuth troubleshooting checklist ---
+        updateStatus('⚠️ Token missing checklist:', 'info');
+        updateStatus('1. Ensure your OAuth client in Genesys Cloud has "Implicit Grant" enabled.', 'info');
+        updateStatus('2. Ensure the Redirect URI exactly matches this app\'s URL, including protocol, domain, path, and trailing slash if any.', 'info');
+        updateStatus('3. If using a browser with extensions, try in a private/incognito window to avoid hash stripping.', 'info');
+        updateStatus('4. After login, check that the URL contains #access_token=...', 'info');
 
         window.location.href = oauthUrl;
         return;
@@ -211,25 +209,16 @@ if (!platformClient) {
 
       try {
         const usersApi = new platformClient.UsersApi();
-
-        // Get current user
         const me = await usersApi.getUsersMe();
         updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
 
-        // Fetch list of users
-        const response = await usersApi.getUsers({ 
-          pageSize: 25, 
-          pageNumber: 1,
-          expand: ['presence'] 
-        });
-
+        const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
         updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
         displayUsers(response.entities);
 
       } catch (err) {
         console.error(err);
         updateStatus(`❌ API Error: ${err.message || err}`, 'error');
-        
         if (err.status === 401 || err.status === 403) {
           updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
         }
@@ -258,14 +247,11 @@ if (!platformClient) {
       if (confirm('Clear token and logout?')) {
         const client = window.platformClient?.ApiClient.instance;
         if (client) client.logout();
-        
-        // Clear hash and reload
         window.location.hash = '';
         window.location.reload();
       }
     }
 
-    // Initialize the app when page loads
     window.onload = initClientApp;
   </script>
 </body>
