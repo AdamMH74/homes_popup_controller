@@ -124,16 +124,30 @@ async function checkExistingActiveCalls(user, conversationsApi, checkCounter=0) 
     const participants = call.participants || [];
     const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
     const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
-    if (agent?.state==='connected' && popUrl && !crmTab) {
-      const url = new URL(popUrl);
-		url.searchParams.set('p2', user.email);
-		url.searchParams.set('token', localStorage.getItem('homesToken'));
-      updateStatus(`Opening HOMES tab from existing call: ${url.toString()}`);
-      crmTab = window.open(url.toString(),'_blank');
-    }
+    if (agent.state==='connected' && popUrl && !crmTab) {
+  const url = new URL(popUrl);
+  url.searchParams.set('p2', user.email);
+  crmTab = window.open(url.toString(), '_blank');
+
+  crmTab.onload = () => {
+    crmTab.postMessage({
+      type: 'homesConfig',
+      config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+      token: localStorage.getItem('homesToken')
+    }, '*'); // Replace '*' with exact origin if you want stricter security
+  };
+
+  updateStatus(`Opening HOMES tab (postMessage config sent).`);
+}
   }
 }
-
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'homesConfig') {
+    localStorage.setItem('homesConfig', JSON.stringify(event.data.config));
+    localStorage.setItem('homesToken', event.data.token);
+    console.log('[HOMES] Config and token received via postMessage.');
+  }
+});
 async function init() {
   try {
     // 1️⃣ Get query params
