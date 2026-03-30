@@ -125,7 +125,7 @@
     function normalizeRegion(region) {
       if (!region) return null;
       let r = region.toLowerCase().trim();
-      r = r.replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^apps\./, '');
+      r = r.replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^api\./, '');
       if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
       if (!r.includes('mypurecloud')) return null;
       return r;
@@ -140,7 +140,7 @@
     function getApiHost(region) {
       const normalized = normalizeRegion(region);
       if (!normalized) return 'api.mypurecloud.com';
-      return `apps.${normalized}`;
+      return `api.${normalized}`;
     }
 
     function parseHashToken() {
