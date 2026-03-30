@@ -7,12 +7,69 @@
 </head>
 <body>
     <h1>Main Page</h1>
-    <button onclick="openNewPage()">Open Second Page</button>
+
+    <!-- 1. Simple link (same tab) -->
+    <p><a href="second.html">Open Second Page (same tab)</a></p>
+
+    <!-- 2. Link in new tab -->
+    <p><a href="second.html" target="_blank">Open Second Page (new tab)</a></p>
+
+    <!-- 3. Link styled as button -->
+    <p>
+        <a href="second.html" target="_blank">
+            <button>Open with Link Button</button>
+        </a>
+    </p>
+
+    <!-- 4. Button with JavaScript (new tab) -->
+    <p>
+        <button onclick="window.open('second.html', '_blank')">
+            Open with JS (new tab)
+        </button>
+    </p>
+
+    <!-- 5. Button with JavaScript (same tab) -->
+    <p>
+        <button onclick="window.location.href='second.html'">
+            Open with JS (same tab)
+        </button>
+    </p>
+
+    <!-- 6. Form submission -->
+    <p>
+        <form action="second.html" method="get">
+            <button type="submit">Open with Form</button>
+        </form>
+    </p>
+
+    <!-- 7. Form in new tab -->
+    <p>
+        <form action="second.html" method="get" target="_blank">
+            <button type="submit">Open Form (new tab)</button>
+        </form>
+    </p>
+
+    <!-- 8. Auto redirect after 3 seconds -->
+    <p>This page will auto-open second.html in 3 seconds...</p>
 
     <script>
-        function openNewPage() {
-            window.open('second.html', '_blank'); // Opens in a new tab
+        // 8. Redirect automatically
+        setTimeout(() => {
+            console.log("Redirecting...");
+            // Uncomment to enable:
+            // window.location.href = "second.html";
+        }, 3000);
+
+        // 9. Function-based open
+        function openPage() {
+            window.open('second.html', '_blank', 'noopener,noreferrer');
         }
     </script>
+
+    <!-- 9. Button calling function -->
+    <p>
+        <button onclick="openPage()">Open via Function</button>
+    </p>
+
 </body>
 </html>
