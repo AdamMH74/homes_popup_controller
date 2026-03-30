@@ -2,92 +2,137 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HOMES Popup Controller</title>
+  
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+  
   <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 15px;
+      background-color: #f8f9fa;
+    }
     .info-container {
       background-color: #f5f5f5;
-      padding: 20px;
-      border-radius: 5px;
+      padding: 18px;
+      border-radius: 6px;
       margin-bottom: 20px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
+      border-left: 4px solid #007bff;
+      max-height: 420px;
+      overflow-y: auto;
     }
-    .info-container p { margin: 5px 0; }
+    .info-container p {
+      margin: 6px 0;
+      font-size: 14px;
+      line-height: 1.4;
+    }
     #openButton {
-      padding: 12px 24px;
+      padding: 14px 28px;
       font-size: 16px;
+      font-weight: 600;
       background-color: #007bff;
       color: white;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      margin: 10px 0;
+      width: 100%;
+      transition: background-color 0.2s;
     }
-    #openButton:hover { background-color: #0056b3; }
-    #openButton:disabled { background-color: #6c757d; cursor: not-allowed; }
+    #openButton:hover:not(:disabled) {
+      background-color: #0056b3;
+    }
+    #openButton:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+    .status-line {
+      color: #555;
+    }
+    .highlight {
+      color: #007bff;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
   <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.0.5...</p>
+    <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.0.6...</p>
   </div>
-
+  
   <button id="openButton" disabled>Open HOMES CRM</button>
 
   <script>
-    const VERSION = '1.0.5';
-    const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
+    const VERSION = '1.0.6';
+    const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 
     let crmTab = null;
     let socket = null;
-    let config = null;
-    let currentPopUrl = null;
     let userEmail = null;
+    let currentPopUrl = null;
+    let me = null;
 
-    const updateStatus = (message) => {
-      const statusBox = document.getElementById('statusBox');
+    const statusBox = document.getElementById('statusBox');
+    const openButton = document.getElementById('openButton');
+
+    const updateStatus = (message, isHighlight = false) => {
       const p = document.createElement('p');
-      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      p.className = isHighlight ? 'highlight' : 'status-line';
+      p.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
       statusBox.appendChild(p);
       statusBox.scrollTop = statusBox.scrollHeight;
       console.log('[HOMES Popup Controller]', message);
     };
 
-    const openButton = document.getElementById('openButton');
-
     const openHOMES = () => {
       if (!currentPopUrl) {
-        updateStatus('No HOMES URL available yet');
+        updateStatus('No HOMES URL available', true);
         return;
       }
+
       try {
         const url = new URL(currentPopUrl);
-        url.searchParams.set('p2', userEmail || '');
-        if (crmTab && !crmTab.closed) crmTab.location.href = url.toString();
-        else crmTab = window.open(url.toString(), 'HOMES_CRM');
+        if (userEmail) url.searchParams.set('p2', userEmail);
+
+        if (crmTab && !crmTab.closed) {
+          crmTab.location.href = url.toString();
+        } else {
+          crmTab = window.open(url.toString(), 'HOMES_CRM');
+        }
+
         openButton.disabled = true;
-      } catch {
-        updateStatus('Invalid HOMES URL, cannot open tab');
+        updateStatus('HOMES CRM tab opened/updated', true);
+      } catch (err) {
+        updateStatus('Invalid HOMES URL – cannot open tab', true);
+        console.error(err);
       }
     };
 
     const openPlaceholderTab = () => {
       if (!crmTab || crmTab.closed) {
         crmTab = window.open('about:blank', 'HOMES_CRM');
-        updateStatus('Placeholder tab opened');
+        updateStatus('Placeholder tab opened for better UX');
       }
     };
 
+    const closeCRMTab = () => {
+      if (crmTab && !crmTab.closed) {
+        crmTab.close();
+        crmTab = null;
+      }
+      currentPopUrl = null;
+      openButton.disabled = true;
+    };
+
+    // Store Genesys Cloud configuration from URL parameters
     const initialiseAndStorePluginConfiguration = () => {
       const params = new URLSearchParams(window.location.search);
-      Object.entries({
-        gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
-        gc_redirectUrl: params.get('gc_redirectUrl'),
-        gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv')
-      }).forEach(([k, v]) => { if (v) sessionStorage.setItem(k, v); });
+      const keys = ['gc_clientId', 'gc_region', 'gc_redirectUrl', 'gcHostOrigin', 'gcTargetEnv'];
+
+      keys.forEach(key => {
+        const value = params.get(key);
+        if (value) sessionStorage.setItem(key, value);
+      });
     };
 
     const getStoredConfig = () => ({
@@ -98,71 +143,76 @@
       gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
     });
 
-    async function init(client) {
+    async function initialize(client) {
       try {
-        await myClientApp.client.onReady().then(async (client) => {
-          // Get current user
-          const me = await client.get('/api/v2/users/me');
-          userEmail = me.email;
-          updateStatus(`Logged in as: ${me.name}`);
+        // Get current user
+        me = await client.get('/api/v2/users/me');
+        userEmail = me.email;
 
-          if (blockedAgentIds.includes(me.id)) {
-            updateStatus('This agent is blocked from using the widget');
-            return;
-          }
+        updateStatus(`Logged in as: <strong>${me.name}</strong> (${userEmail})`, true);
 
-          // Notification channel
-          const channel = await client.post('/api/v2/notifications/channels');
-          const topic = `v2.users.${me.id}.conversations.calls`;
-          await client.put(`/api/v2/notifications/channels/${channel.id}/subscriptions`, [{ id: topic }]);
+        if (BLOCKED_AGENT_IDS.includes(me.id)) {
+          updateStatus('❌ This agent is blocked from using the HOMES widget', true);
+          openButton.disabled = true;
+          return;
+        }
 
-          // WebSocket
-          socket = new WebSocket(channel.connectUri);
-          socket.onopen = () => updateStatus('WebSocket connected');
-          socket.onclose = () => updateStatus('WebSocket closed');
-          socket.onerror = (err) => updateStatus(`WebSocket error: ${err.message || err}`);
+        // Create notification channel
+        const channel = await client.post('/api/v2/notifications/channels');
+        const topic = `v2.users.${me.id}.conversations.calls`;
 
-          socket.onmessage = (event) => {
-            try {
-              const data = JSON.parse(event.data);
-              if (!data.eventBody) return;
+        await client.put(`/api/v2/notifications/channels/${channel.id}/subscriptions`, [{ id: topic }]);
 
-              const participants = data.eventBody.participants || [];
-              const agentPart = participants.find(p => p.purpose === 'agent' && p.user?.id === me.id);
-              if (!agentPart) return;
+        // Setup WebSocket
+        socket = new WebSocket(channel.connectUri);
 
-              const popUrl = participants
-                .map(p => p.attributes?.UD_ScreenPop_URL)
-                .find(u => u && u.startsWith('http'));
+        socket.onopen = () => updateStatus('WebSocket connected successfully');
+        socket.onclose = () => updateStatus('WebSocket connection closed');
+        socket.onerror = () => updateStatus('WebSocket error occurred');
 
-              if (agentPart.state === 'connected' && popUrl) {
-                currentPopUrl = popUrl;
-                openButton.disabled = false;
-                updateStatus('Call connected – Open HOMES button is now available');
-              }
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (!data.eventBody?.participants) return;
 
-              if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') &&
-                  agentPart.wrapup && crmTab && !crmTab.closed) {
-                updateStatus('Closing HOMES tab after wrap-up');
-                crmTab.close();
-                crmTab = null;
-                currentPopUrl = null;
-                openButton.disabled = true;
-              }
-            } catch (e) {
-              console.error(e);
+            const participants = data.eventBody.participants;
+            const agentPart = participants.find(p => 
+              p.purpose === 'agent' && p.user?.id === me.id
+            );
+
+            if (!agentPart) return;
+
+            // Find screen pop URL
+            const popUrl = participants
+              .map(p => p.attributes?.UD_ScreenPop_URL)
+              .find(url => url && url.startsWith('http'));
+
+            if (agentPart.state === 'connected' && popUrl) {
+              currentPopUrl = popUrl;
+              openButton.disabled = false;
+              updateStatus('✅ Call connected – HOMES button enabled', true);
             }
-          };
-        });
+
+            // Close tab when call ends + wrap-up starts
+            if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') 
+                && agentPart.wrapup) {
+              updateStatus('Call ended – closing HOMES tab');
+              closeCRMTab();
+            }
+          } catch (e) {
+            console.error('Error processing WebSocket message:', e);
+          }
+        };
+
       } catch (err) {
-        updateStatus(`Init error: ${err.message}`);
+        updateStatus(`Initialization failed: ${err.message}`, true);
         console.error(err);
       }
     }
 
     // ====================== CLIENT APP LIFECYCLE ======================
     initialiseAndStorePluginConfiguration();
-    config = getStoredConfig();
+    const config = getStoredConfig();
 
     const ClientApp = window.purecloud.apps.ClientApp;
     const myClientApp = new ClientApp({
@@ -171,36 +221,38 @@
     });
 
     myClientApp.lifecycle.addBootstrapListener(() => {
-  updateStatus('Application bootstrapped');
-  openPlaceholderTab();
+      updateStatus('Application bootstrapped');
+      openPlaceholderTab();
 
-  const waitForClient = () => {
-    if (myClientApp.client) {
-      init(myClientApp.client);
-    } else {
-      setTimeout(waitForClient, 100);
-    }
-  };
+      const waitForClient = () => {
+        if (myClientApp.client) {
+          initialize(myClientApp.client);
+        } else {
+          setTimeout(waitForClient, 100);
+        }
+      };
+      waitForClient();
 
-  waitForClient();
-
-  myClientApp.lifecycle.bootstrapped();
-});
+      myClientApp.lifecycle.bootstrapped();
+    });
 
     myClientApp.lifecycle.addStopListener(() => {
-      updateStatus('Application stopped');
-      if (crmTab && !crmTab.closed) crmTab.close();
-      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+      updateStatus('Application stopping...');
+      closeCRMTab();
+      if (socket?.readyState === WebSocket.OPEN) socket.close();
       myClientApp.lifecycle.stopped();
     });
 
+    // Cleanup on page unload
     window.addEventListener('beforeunload', () => {
-      if (crmTab && !crmTab.closed) crmTab.close();
-      if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+      closeCRMTab();
+      if (socket?.readyState === WebSocket.OPEN) socket.close();
     });
 
+    // Button handler
     openButton.addEventListener('click', openHOMES);
-    updateStatus(`HOMES Popup Controller v${VERSION} ready – click the button when available`);
+
+    updateStatus(`HOMES Popup Controller v${VERSION} initialized and ready`);
   </script>
 </body>
 </html>
