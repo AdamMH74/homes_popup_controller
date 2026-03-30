@@ -3,256 +3,270 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HOMES Popup Controller</title>
-  
-  <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
-  
+  <title>HOMES Client App</title>
+  <script src="purecloud-platform-client-v2.min.js"></script>
   <style>
     body {
-      font-family: Arial, Helvetica, sans-serif;
-      margin: 15px;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
       background-color: #f8f9fa;
+      color: #333;
     }
-    .info-container {
-      background-color: #f5f5f5;
-      padding: 18px;
-      border-radius: 6px;
+    h1 {
+      color: #0052cc;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #666;
       margin-bottom: 20px;
-      border-left: 4px solid #007bff;
-      max-height: 420px;
+    }
+    #statusBox {
+      background: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 900px;
+      max-height: 70vh;
       overflow-y: auto;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      line-height: 1.5;
     }
-    .info-container p {
-      margin: 6px 0;
-      font-size: 14px;
-      line-height: 1.4;
+    #statusBox p {
+      margin: 8px 0;
+      padding: 4px 8px;
+      border-radius: 4px;
     }
-    #openButton {
-      padding: 14px 28px;
-      font-size: 16px;
-      font-weight: 600;
-      background-color: #007bff;
+    .error { 
+      background-color: #ffebee; 
+      color: #c62828; 
+      border-left: 4px solid #c62828;
+    }
+    .success { 
+      background-color: #e8f5e9; 
+      color: #2e7d32; 
+      border-left: 4px solid #2e7d32;
+    }
+    .info {
+      background-color: #e3f2fd;
+      color: #1565c0;
+      border-left: 4px solid #1565c0;
+    }
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      background-color: #0052cc;
       color: white;
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      width: 100%;
-      transition: background-color 0.2s;
+      font-size: 14px;
     }
-    #openButton:hover:not(:disabled) {
-      background-color: #0056b3;
+    button:hover {
+      background-color: #003d99;
     }
-    #openButton:disabled {
-      background-color: #6c757d;
-      cursor: not-allowed;
-    }
-    .status-line {
-      color: #555;
-    }
-    .highlight {
-      color: #007bff;
-      font-weight: 600;
+    .version {
+      font-size: 12px;
+      color: #888;
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
-  <div class="info-container" id="statusBox">
-    <p><strong>Status:</strong> Initializing HOMES Popup Controller v1.0.6...</p>
+  <h1>HOMES Client App</h1>
+  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.1.0</span></p>
+
+  <div id="statusBox">
+    <p class="info">Initializing HOMES Client App...</p>
   </div>
-  
-  <button id="openButton" disabled>Open HOMES CRM</button>
+
+  <button onclick="logout()">Logout & Clear Token</button>
+
+  <div class="version">
+    SDK: purecloud-platform-client-v2 • Implicit Grant (Recommended to migrate to PKCE soon)
+  </div>
 
   <script>
-    const VERSION = '1.0.6';
-    const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
+    const VERSION = '1.1.0';
 
-    let crmTab = null;
-    let socket = null;
-    let userEmail = null;
-    let currentPopUrl = null;
-    let me = null;
+    function updateStatus(message, type = 'info') {
+      const statusBox = document.getElementById('statusBox');
+      if (!statusBox) return;
 
-    const statusBox = document.getElementById('statusBox');
-    const openButton = document.getElementById('openButton');
-
-    const updateStatus = (message, isHighlight = false) => {
       const p = document.createElement('p');
-      p.className = isHighlight ? 'highlight' : 'status-line';
-      p.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
+      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      
+      if (type === 'error') p.classList.add('error');
+      else if (type === 'success') p.classList.add('success');
+      else p.classList.add('info');
+
       statusBox.appendChild(p);
       statusBox.scrollTop = statusBox.scrollHeight;
-      console.log('[HOMES Popup Controller]', message);
-    };
+      console.log(`[HOMES Client v${VERSION}]`, message);
+    }
 
-    const openHOMES = () => {
-      if (!currentPopUrl) {
-        updateStatus('No HOMES URL available', true);
+    // Parse URL query parameters
+    function getQueryParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        gc_clientId: params.get('gc_clientId'),
+        gc_region: params.get('gc_region'),
+        gc_redirectUrl: params.get('gc_redirectUrl'),
+        gcHostOrigin: params.get('gcHostOrigin'),
+        gcTargetEnv: params.get('gcTargetEnv')
+      };
+    }
+
+    function normalizeRegion(region) {
+  if (!region) return null;
+
+  let r = region.toLowerCase().trim();
+
+  r = r.replace(/^https?:\/\//, '');
+  r = r.replace(/^login\./, '');
+  r = r.replace(/^apps\./, '');
+
+  if (r.startsWith('purecloud.')) {
+    r = 'mypurecloud.' + r.split('purecloud.')[1];
+  }
+
+  // Basic sanity check
+  if (!r.includes('mypurecloud')) {
+    return null;
+  }
+
+  return r;
+}
+
+function getOAuthHost(region) {
+  const normalized = normalizeRegion(region);
+  if (!normalized) return 'login.mypurecloud.com';
+  return `login.${normalized}`;
+}
+
+function getApiHost(region) {
+  const normalized = normalizeRegion(region);
+  if (!normalized) return 'apps.mypurecloud.com';
+  return `apps.${normalized}`;
+}
+
+    function parseHashToken() {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      return params.get('access_token');
+    }
+
+    async function initClientApp() {
+      const config = getQueryParams();
+      updateStatus(`Loaded configuration: ${JSON.stringify(config, null, 2)}`, 'info');
+
+      if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+        updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
         return;
       }
 
+      const oauthHost = getOAuthHost(config.gc_region);
+      const apiHost = getApiHost(config.gc_region);
+	    updateStatus(`Original region: ${config.gc_region}`, 'info');
+		updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
+		updateStatus(`OAuth Host: ${oauthHost}`, 'info');
+		updateStatus(`API Host: ${apiHost}`, 'info');
+
+      // Use global SDK (more reliable in browser)
+      let platformClient = window.platformClient;
+
+if (!platformClient && window.require) {
+  try {
+    platformClient = window.require('platformClient');
+  } catch (e) {
+    console.error('Require failed:', e);
+  }
+}
+
+if (!platformClient) {
+  updateStatus('❌ Genesys Cloud SDK not loaded (platformClient not found)', 'error');
+  return;
+}
+
+      const client = platformClient.ApiClient.instance;
+      client.setEnvironment(apiHost);
+      client.setPersistSettings(true, 'homesClient');
+
+      const token = parseHashToken();
+
+      if (!token) {
+        updateStatus('No access token found. Redirecting to Genesys Cloud login...', 'info');
+        
+        const oauthUrl = `https://${oauthHost}/oauth/authorize` +
+          `?response_type=token` +
+          `&client_id=${encodeURIComponent(config.gc_clientId)}` +
+          `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+
+        window.location.href = oauthUrl;
+        return;
+      }
+
+      updateStatus('✅ Access token retrieved from URL fragment', 'success');
+      client.setAccessToken(token);
+
       try {
-        const url = new URL(currentPopUrl);
-        if (userEmail) url.searchParams.set('p2', userEmail);
+        const usersApi = new platformClient.UsersApi();
 
-        if (crmTab && !crmTab.closed) {
-          crmTab.location.href = url.toString();
-        } else {
-          crmTab = window.open(url.toString(), 'HOMES_CRM');
-        }
-
-        openButton.disabled = true;
-        updateStatus('HOMES CRM tab opened/updated', true);
-      } catch (err) {
-        updateStatus('Invalid HOMES URL – cannot open tab', true);
-        console.error(err);
-      }
-    };
-
-    const openPlaceholderTab = () => {
-      if (!crmTab || crmTab.closed) {
-        crmTab = window.open('about:blank', 'HOMES_CRM');
-        updateStatus('Placeholder tab opened for better UX');
-      }
-    };
-
-    const closeCRMTab = () => {
-      if (crmTab && !crmTab.closed) {
-        crmTab.close();
-        crmTab = null;
-      }
-      currentPopUrl = null;
-      openButton.disabled = true;
-    };
-
-    // Store Genesys Cloud configuration from URL parameters
-    const initialiseAndStorePluginConfiguration = () => {
-      const params = new URLSearchParams(window.location.search);
-      const keys = ['gc_clientId', 'gc_region', 'gc_redirectUrl', 'gcHostOrigin', 'gcTargetEnv'];
-
-      keys.forEach(key => {
-        const value = params.get(key);
-        if (value) sessionStorage.setItem(key, value);
-      });
-    };
-
-    const getStoredConfig = () => ({
-      gc_clientId: sessionStorage.getItem('gc_clientId'),
-      gc_region: sessionStorage.getItem('gc_region'),
-      gc_redirectUrl: sessionStorage.getItem('gc_redirectUrl'),
-      gcHostOrigin: sessionStorage.getItem('gcHostOrigin'),
-      gcTargetEnv: sessionStorage.getItem('gcTargetEnv')
-    });
-
-    async function initialize(client) {
-      try {
         // Get current user
-        me = await client.get('/api/v2/users/me');
-        userEmail = me.email;
+        const me = await usersApi.getUsersMe();
+        updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
 
-        updateStatus(`Logged in as: <strong>${me.name}</strong> (${userEmail})`, true);
+        // Fetch list of users
+        const response = await usersApi.getUsers({ 
+          pageSize: 25, 
+          pageNumber: 1,
+          expand: ['presence'] 
+        });
 
-        if (BLOCKED_AGENT_IDS.includes(me.id)) {
-          updateStatus('❌ This agent is blocked from using the HOMES widget', true);
-          openButton.disabled = true;
-          return;
-        }
-
-        // Create notification channel
-        const channel = await client.post('/api/v2/notifications/channels');
-        const topic = `v2.users.${me.id}.conversations.calls`;
-
-        await client.put(`/api/v2/notifications/channels/${channel.id}/subscriptions`, [{ id: topic }]);
-
-        // Setup WebSocket
-        socket = new WebSocket(channel.connectUri);
-
-        socket.onopen = () => updateStatus('WebSocket connected successfully');
-        socket.onclose = () => updateStatus('WebSocket connection closed');
-        socket.onerror = () => updateStatus('WebSocket error occurred');
-
-        socket.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (!data.eventBody?.participants) return;
-
-            const participants = data.eventBody.participants;
-            const agentPart = participants.find(p => 
-              p.purpose === 'agent' && p.user?.id === me.id
-            );
-
-            if (!agentPart) return;
-
-            // Find screen pop URL
-            const popUrl = participants
-              .map(p => p.attributes?.UD_ScreenPop_URL)
-              .find(url => url && url.startsWith('http'));
-
-            if (agentPart.state === 'connected' && popUrl) {
-              currentPopUrl = popUrl;
-              openButton.disabled = false;
-              updateStatus('✅ Call connected – HOMES button enabled', true);
-            }
-
-            // Close tab when call ends + wrap-up starts
-            if ((agentPart.state === 'disconnected' || agentPart.state === 'terminated') 
-                && agentPart.wrapup) {
-              updateStatus('Call ended – closing HOMES tab');
-              closeCRMTab();
-            }
-          } catch (e) {
-            console.error('Error processing WebSocket message:', e);
-          }
-        };
+        updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
+        displayUsers(response.entities);
 
       } catch (err) {
-        updateStatus(`Initialization failed: ${err.message}`, true);
         console.error(err);
+        updateStatus(`❌ API Error: ${err.message || err}`, 'error');
+        
+        if (err.status === 401 || err.status === 403) {
+          updateStatus('Token may be expired or invalid. Try clearing token and logging in again.', 'error');
+        }
       }
     }
 
-    // ====================== CLIENT APP LIFECYCLE ======================
-    initialiseAndStorePluginConfiguration();
-    const config = getStoredConfig();
+    function displayUsers(users) {
+      if (!users || users.length === 0) {
+        updateStatus('No users returned.', 'info');
+        return;
+      }
 
-    const ClientApp = window.purecloud.apps.ClientApp;
-    const myClientApp = new ClientApp({
-      gcHostOrigin: config.gcHostOrigin,
-      gcTargetEnv: config.gcTargetEnv
-    });
+      updateStatus(`📋 Retrieved ${users.length} user(s):`, 'success');
 
-    myClientApp.lifecycle.addBootstrapListener(() => {
-      updateStatus('Application bootstrapped');
-      openPlaceholderTab();
+      users.forEach(user => {
+        const name = user.name || 'N/A';
+        const email = user.email || user.username || 'N/A';
+        const title = user.title ? ` - ${user.title}` : '';
+        const presence = user.presence ? ` [${user.presence.presenceDefinition?.systemPresence || 'Unknown'}]` : '';
+        
+        updateStatus(` • ${name} (${email})${title}${presence}`);
+      });
+    }
 
-      const waitForClient = () => {
-        if (myClientApp.client) {
-          initialize(myClientApp.client);
-        } else {
-          setTimeout(waitForClient, 100);
-        }
-      };
-      waitForClient();
+    function logout() {
+      if (confirm('Clear token and logout?')) {
+        const client = window.platformClient?.ApiClient.instance;
+        if (client) client.logout();
+        
+        // Clear hash and reload
+        window.location.hash = '';
+        window.location.reload();
+      }
+    }
 
-      myClientApp.lifecycle.bootstrapped();
-    });
-
-    myClientApp.lifecycle.addStopListener(() => {
-      updateStatus('Application stopping...');
-      closeCRMTab();
-      if (socket?.readyState === WebSocket.OPEN) socket.close();
-      myClientApp.lifecycle.stopped();
-    });
-
-    // Cleanup on page unload
-    window.addEventListener('beforeunload', () => {
-      closeCRMTab();
-      if (socket?.readyState === WebSocket.OPEN) socket.close();
-    });
-
-    // Button handler
-    openButton.addEventListener('click', openHOMES);
-
-    updateStatus(`HOMES Popup Controller v${VERSION} initialized and ready`);
+    // Initialize the app when page loads
+    window.onload = initClientApp;
   </script>
 </body>
 </html>
