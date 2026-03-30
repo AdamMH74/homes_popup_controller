@@ -139,7 +139,7 @@
 
     function getApiHost(region) {
       const normalized = normalizeRegion(region);
-      if (!normalized) return 'apps.mypurecloud.com';
+      if (!normalized) return 'api.mypurecloud.com';
       return `apps.${normalized}`;
     }
 
