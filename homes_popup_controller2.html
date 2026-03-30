@@ -65,7 +65,7 @@
         const url = new URL(currentPopUrl);
         url.searchParams.set('p2', userEmail || '');
         if (crmTab && !crmTab.closed) crmTab.location.href = url.toString();
-        else crmTab = window.open(url.toString(), '_blank');
+        else crmTab = window.open(url.toString(), 'HOMES_CRM');
         openButton.disabled = true;
       } catch {
         updateStatus('Invalid HOMES URL, cannot open tab');
@@ -74,7 +74,7 @@
 
     const openPlaceholderTab = () => {
       if (!crmTab || crmTab.closed) {
-        crmTab = window.open('about:blank', '_blank');
+        crmTab = window.open('about:blank', 'HOMES_CRM');
         updateStatus('Placeholder tab opened');
       }
     };
