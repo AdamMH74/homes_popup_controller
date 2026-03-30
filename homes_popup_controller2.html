@@ -203,7 +203,7 @@ if (token) {
     }
   }
 
-  updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
+  //updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
 
   if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
     updateStatus('❌ Missing required parameters: gc_clientId, gc_region, or gc_redirectUrl', 'error');
@@ -214,8 +214,8 @@ if (token) {
   const apiHost = getApiHost(config.gc_region);
   //updateStatus(`Original region: ${config.gc_region}`, 'info');
   //updateStatus(`Normalized region: ${normalizeRegion(config.gc_region)}`, 'info');
-  updateStatus(`OAuth Host: ${oauthHost}`, 'info');
-  updateStatus(`API Host: ${apiHost}`, 'info');
+  //updateStatus(`OAuth Host: ${oauthHost}`, 'info');
+  //updateStatus(`API Host: ${apiHost}`, 'info');
 
   let platformClient = window.platformClient;
   if (!platformClient && window.require) {
