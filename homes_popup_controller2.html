@@ -106,15 +106,21 @@
     }
 
     function getQueryParams() {
-      const params = new URLSearchParams(window.location.search);
-      return {
-        gc_clientId: params.get('gc_clientId'),
-        gc_region: params.get('gc_region'),
-        gc_redirectUrl: params.get('gc_redirectUrl'),
-        gcHostOrigin: params.get('gcHostOrigin'),
-        gcTargetEnv: params.get('gcTargetEnv')
-      };
-    }
+  const params = new URLSearchParams(window.location.search);
+  let gc_clientId = params.get('gc_clientId');
+  let gc_region = params.get('gc_region');
+  let gc_redirectUrl = params.get('gc_redirectUrl');
+
+  // Fallback: check hash
+  if (!gc_clientId || !gc_region || !gc_redirectUrl) {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    gc_clientId = gc_clientId || hashParams.get('gc_clientId');
+    gc_region = gc_region || hashParams.get('gc_region');
+    gc_redirectUrl = gc_redirectUrl || hashParams.get('gc_redirectUrl');
+  }
+
+  return { gc_clientId, gc_region, gc_redirectUrl };
+}
 
     function normalizeRegion(region) {
       if (!region) return null;
@@ -138,14 +144,26 @@
     }
 
     function parseHashToken() {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      return {
-        token: params.get('access_token'),
-        expiresIn: params.get('expires_in'),
-        tokenType: params.get('token_type')
-      };
-    }
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
+  const params = new URLSearchParams(hash);
+
+  let token = params.get('access_token');
+  let expiresIn = params.get('expires_in');
+  let tokenType = params.get('token_type');
+
+  if (token) {
+    token = decodeURIComponent(token);
+    localStorage.setItem('homesToken', token);
+    localStorage.setItem('homesTokenExpires', Date.now() + parseInt(expiresIn, 10) * 1000);
+    localStorage.setItem('homesTokenType', tokenType);
+  } else if (localStorage.getItem('homesToken')) {
+    token = localStorage.getItem('homesToken');
+    expiresIn = Math.max(0, (localStorage.getItem('homesTokenExpires') - Date.now()) / 1000);
+    tokenType = localStorage.getItem('homesTokenType');
+  }
+
+  return { token, expiresIn, tokenType };
+}
 
     async function initClientApp() {
       updateStatus(`Full URL: ${window.location.href}`, 'info');
@@ -181,8 +199,7 @@
       client.setPersistSettings(true, 'homesClient');
 
       const { token, expiresIn, tokenType } = parseHashToken();
-      updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
-
+updateStatus(`Parsed token info: token=${token ? 'FOUND' : 'NOT FOUND'}, expiresIn=${expiresIn || 'N/A'}, type=${tokenType || 'N/A'}`, token ? 'success' : 'error');
       if (!token) {
         updateStatus('❌ No access token found. Redirecting to Genesys Cloud login...', 'error');
 
