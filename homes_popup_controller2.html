@@ -47,6 +47,15 @@ let notificationsApi = null;
 let conversationsApi = null;
 let usersApi = null;
 
+const urlParams = new URLSearchParams(window.location.search);
+const tokenFromParent = urlParams.get('token');
+
+if (tokenFromParent && window.platformClient) {
+  const client = window.platformClient.ApiClient.instance;
+  client.setAccessToken(tokenFromParent);
+  console.log('Token injected from parent app');
+}
+
 function updateStatus(message, type='info') {
   const statusBox = document.getElementById('statusBox');
   if (!statusBox) return;
@@ -116,7 +125,9 @@ async function checkExistingActiveCalls(user, conversationsApi, checkCounter=0) 
     const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
     const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
     if (agent?.state==='connected' && popUrl && !crmTab) {
-      const url = new URL(popUrl); url.searchParams.set('p2', user.email);
+      const url = new URL(popUrl);
+		url.searchParams.set('p2', user.email);
+		url.searchParams.set('token', localStorage.getItem('homesToken'));
       updateStatus(`Opening HOMES tab from existing call: ${url.toString()}`);
       crmTab = window.open(url.toString(),'_blank');
     }
@@ -127,7 +138,17 @@ async function init() {
   try {
     // 1️⃣ Get query params
     let config = getQueryParams();
-    const { token, expiresIn } = parseHashToken();
+    let { token, expiresIn } = parseHashToken();
+
+// ✅ Override with parent token if present
+if (tokenFromParent) {
+  token = tokenFromParent;
+  expiresIn = 3600; // prevent login redirect
+
+  // 🔥 STORE IT so the rest of the app uses it
+  localStorage.setItem('homesToken', tokenFromParent);
+  localStorage.setItem('homesTokenExpires', Date.now() + 3600 * 1000);
+}
 
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
       const stored = JSON.parse(localStorage.getItem('homesConfig')||'{}');
@@ -148,7 +169,7 @@ async function init() {
 
     const oauthHost = getOAuthHost(config.gc_region);
     const apiHost = getApiHost(config.gc_region);
-    updateStatus(`API Host: ${apiHost}`, 'info');
+    //updateStatus(`API Host: ${apiHost}`, 'info');
 
     client.setEnvironment(apiHost);
     client.setPersistSettings(true,'homesClient');
@@ -185,7 +206,9 @@ async function init() {
         if (!agent) return;
 
         if (agent.state==='connected' && popUrl && !crmTab) {
-          const url = new URL(popUrl); url.searchParams.set('p2', user.email);
+          const url = new URL(popUrl);
+url.searchParams.set('p2', user.email);
+url.searchParams.set('token', localStorage.getItem('homesToken'));
           updateStatus(`Opening HOMES tab: ${url.toString()}`);
           crmTab = window.open(url.toString(),'_blank');
         }
