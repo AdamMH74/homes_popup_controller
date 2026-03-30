@@ -260,9 +260,9 @@ if (token) {
     const me = await usersApi.getUsersMe();
     updateStatus(`✅ Logged in as: ${me.name} (${me.email || me.username})`, 'success');
 
-    const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
-    updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
-    displayUsers(response.entities);
+    //const response = await usersApi.getUsers({ pageSize: 25, pageNumber: 1, expand: ['presence'] });
+    //updateStatus(`✅ Successfully fetched ${response.entities.length} users`, 'success');
+    //displayUsers(response.entities);
 
   } catch (err) {
     console.error(err);
