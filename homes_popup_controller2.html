@@ -6,23 +6,56 @@
   <title>HOMES Client & Popup Controller</title>
   <script src="https://sdk-cdn.mypurecloud.com/javascript/221.0.0/purecloud-platform-client-v2.min.js"></script>
   <script src="https://sdk-cdn.mypurecloud.com/client-apps/2.6.7/purecloud-client-app-sdk.js"></script>
+
   <style>
-    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; color: #333; }
-    h1 { color: #0052cc; margin-bottom: 10px; }
-    .subtitle { color: #666; margin-bottom: 20px; }
-    #statusBox { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px; max-width: 900px; max-height: 70vh; overflow-y: auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); line-height: 1.5; }
-    #statusBox p { margin: 8px 0; padding: 4px 8px; border-radius: 4px; }
-    .error { background-color: #ffebee; color: #c62828; border-left: 4px solid #c62828; }
-    .success { background-color: #e8f5e9; color: #2e7d32; border-left: 4px solid #2e7d32; }
-    .info { background-color: #e3f2fd; color: #1565c0; border-left: 4px solid #1565c0; }
-    button { margin-top: 15px; padding: 10px 20px; background-color: #0052cc; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    body { 
+      font-family: 'Segoe UI', Arial, sans-serif; 
+      margin: 0; 
+      padding: 20px; 
+      background: #f8f9fa; 
+      color: #333; 
+    }
+    h1 { color: #0052cc; margin-bottom: 8px; }
+    .subtitle { color: #666; margin-bottom: 20px; font-size: 15px; }
+    #statusBox { 
+      background: #fff; 
+      border: 1px solid #ddd; 
+      border-radius: 8px; 
+      padding: 20px; 
+      max-width: 920px; 
+      max-height: 75vh; 
+      overflow-y: auto; 
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1); 
+      line-height: 1.55; 
+      font-size: 14px;
+    }
+    #statusBox p { 
+      margin: 8px 0; 
+      padding: 6px 10px; 
+      border-radius: 4px; 
+    }
+    .error   { background: #ffebee; color: #c62828; border-left: 5px solid #c62828; }
+    .success { background: #e8f5e9; color: #2e7d32; border-left: 5px solid #2e7d32; }
+    .info    { background: #e3f2fd; color: #1565c0; border-left: 5px solid #1565c0; }
+    .warning { background: #fff3e0; color: #ef6c00; border-left: 5px solid #ef6c00; }
+
+    button { 
+      margin-top: 15px; 
+      padding: 10px 24px; 
+      background-color: #0052cc; 
+      color: white; 
+      border: none; 
+      border-radius: 6px; 
+      cursor: pointer; 
+      font-size: 14px;
+    }
     button:hover { background-color: #003d99; }
-    .version { font-size: 12px; color: #888; margin-top: 10px; }
+    .version { font-size: 12px; color: #888; margin-top: 12px; }
   </style>
 </head>
 <body>
   <h1>HOMES Client & Popup Controller</h1>
-  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.2.0</span></p>
+  <p class="subtitle">Genesys Cloud Integration • Version <span id="appVersion">1.3.0</span></p>
 
   <div id="statusBox">
     <p class="info">Initializing HOMES Client & Popup Controller...</p>
@@ -31,236 +64,306 @@
   <button onclick="logout()">Logout & Clear Token</button>
 
   <div class="version">
-    SDK: purecloud-platform-client-v2 • Implicit Grant (Recommended to migrate to PKCE soon)
+    SDK: purecloud-platform-client-v2 • Implicit Grant (Consider migrating to PKCE)
   </div>
 
 <script>
-const VERSION = '1.2.0';
-const blockedAgentIds = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
+const VERSION = '1.3.0';
+const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 
 let crmTab = null;
 let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
 let client = platformClient?.ApiClient.instance;
+
 let notificationsApi = null;
 let conversationsApi = null;
 let usersApi = null;
 
-const urlParams = new URLSearchParams(window.location.search);
-const tokenFromParent = urlParams.get('token');
+let currentUser = null;
+let notificationSocket = null;
 
-if (tokenFromParent && window.platformClient) {
-  const client = window.platformClient.ApiClient.instance;
-  client.setAccessToken(tokenFromParent);
-  console.log('Token injected from parent app');
-}
-
-function updateStatus(message, type='info') {
+function updateStatus(message, type = 'info') {
   const statusBox = document.getElementById('statusBox');
   if (!statusBox) return;
+
   const p = document.createElement('p');
   p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
   p.classList.add(type);
   statusBox.appendChild(p);
   statusBox.scrollTop = statusBox.scrollHeight;
-  console.log(`[HOMES v${VERSION}]`, message);
+
+  console.log(`[HOMES v${VERSION}] [${type.toUpperCase()}]`, message);
 }
+
+// ====================== Configuration & Token ======================
 
 function getQueryParams() {
   const params = new URLSearchParams(window.location.search);
-  let gc_clientId = params.get('gc_clientId');
-  let gc_region = params.get('gc_region');
-  let gc_redirectUrl = params.get('gc_redirectUrl');
-  return { gc_clientId, gc_region, gc_redirectUrl };
+  return {
+    gc_clientId: params.get('gc_clientId'),
+    gc_region: params.get('gc_region'),
+    gc_redirectUrl: params.get('gc_redirectUrl')
+  };
 }
 
 function normalizeRegion(region) {
   if (!region) return null;
-  let r = region.toLowerCase().trim();
-  r = r.replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^api\./, '');
-  if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
-  if (!r.includes('mypurecloud')) return null;
-  return r;
+  let r = region.toLowerCase().trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/^login\./, '')
+    .replace(/^api\./, '');
+
+  if (r.startsWith('purecloud.')) {
+    r = 'mypurecloud.' + r.split('purecloud.')[1];
+  }
+  return r.includes('mypurecloud') ? r : null;
 }
 
-function getOAuthHost(region) { const n = normalizeRegion(region); return n ? `login.${n}` : 'login.mypurecloud.com'; }
-function getApiHost(region) { const n = normalizeRegion(region); return n ? `api.${n}` : 'api.mypurecloud.com'; }
+function getOAuthHost(region) {
+  const n = normalizeRegion(region);
+  return n ? `login.${n}` : 'login.mypurecloud.com';
+}
+
+function getApiHost(region) {
+  const n = normalizeRegion(region);
+  return n ? `api.${n}` : 'api.mypurecloud.com';
+}
 
 function parseHashToken() {
-  const hash = window.location.hash.startsWith('#') ? window.location.hash.substring(1) : window.location.hash;
+  const hash = window.location.hash.substring(1);
   const params = new URLSearchParams(hash);
+
   let token = params.get('access_token');
   let expiresIn = params.get('expires_in');
   let tokenType = params.get('token_type');
 
   if (token) {
     token = decodeURIComponent(token);
+    const expiry = Date.now() + parseInt(expiresIn || 3600, 10) * 1000;
+
     localStorage.setItem('homesToken', token);
-    localStorage.setItem('homesTokenExpires', Date.now() + parseInt(expiresIn,10)*1000);
-    localStorage.setItem('homesTokenType', tokenType);
-  } else if (localStorage.getItem('homesToken')) {
+    localStorage.setItem('homesTokenExpires', expiry);
+    localStorage.setItem('homesTokenType', tokenType || 'bearer');
+  } else {
+    // Try to restore from localStorage
     token = localStorage.getItem('homesToken');
-    expiresIn = Math.max(0,(localStorage.getItem('homesTokenExpires') - Date.now())/1000);
-    tokenType = localStorage.getItem('homesTokenType');
-  }
+    const storedExpiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
 
-  return { token, expiresIn, tokenType };
-}
-
-async function checkExistingActiveCalls(user, conversationsApi, checkCounter=0) {
-  const existingCallMaxChecks = 20;
-  const existingCallCheckInterval = 2500;
-  if (checkCounter > existingCallMaxChecks) return;
-
-  const activeCalls = await conversationsApi.getConversationsCalls();
-  if (!activeCalls?.entities || activeCalls.entities.length===0) {
-    await new Promise(r=>setTimeout(r, existingCallCheckInterval));
-    return checkExistingActiveCalls(user, conversationsApi, checkCounter+1);
-  }
-
-  for (const call of activeCalls.entities) {
-    const participants = call.participants || [];
-    const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
-    const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
-    if (agent?.state==='connected' && popUrl && !crmTab) {
-      const url = new URL(popUrl);
-      url.searchParams.set('p2', user.email);
-
-      crmTab = window.open(url.toString(), '_blank');
-
-      // ✅ FIX: Use message listener instead of onload
-      function handleReady(event) {
-        if (event.source === crmTab && event.data?.type === 'homesReady') {
-          crmTab.postMessage({
-            type: 'homesConfig',
-            config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-            token: localStorage.getItem('homesToken')
-          }, '*');
-          updateStatus('HOMES config sent to new tab.');
-          window.removeEventListener('message', handleReady);
-        }
-      }
-      window.addEventListener('message', handleReady);
-      updateStatus('Opening HOMES tab, waiting for tab readiness...');
+    if (token && storedExpiry && storedExpiry > Date.now()) {
+      expiresIn = Math.floor((storedExpiry - Date.now()) / 1000);
+    } else {
+      token = null;
     }
   }
+
+  return { token, expiresIn: parseInt(expiresIn || 0, 10) };
 }
+
+// ====================== Screen Pop Handling ======================
+
+function openHOMESTab(popUrl, userEmail, token) {
+  if (crmTab && !crmTab.closed) {
+    updateStatus('HOMES tab already open', 'warning');
+    return;
+  }
+
+  try {
+    const url = new URL(popUrl);
+    url.searchParams.set('p2', userEmail);
+    if (token) url.searchParams.set('token', token);
+
+    crmTab = window.open(url.toString(), '_blank');
+
+    const handleReady = (event) => {
+      if (event.source === crmTab && event.data?.type === 'homesReady') {
+        crmTab.postMessage({
+          type: 'homesConfig',
+          config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+          token: localStorage.getItem('homesToken')
+        }, '*');   // Consider restricting origin in production
+
+        updateStatus('HOMES config sent to CRM tab successfully.');
+        window.removeEventListener('message', handleReady);
+      }
+    };
+
+    window.addEventListener('message', handleReady);
+
+    updateStatus('Opening HOMES CRM tab...');
+  } catch (err) {
+    updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
+  }
+}
+
+async function checkExistingActiveCalls(user) {
+  if (!conversationsApi) return;
+
+  let attempts = 0;
+  const maxAttempts = 15;
+
+  while (attempts < maxAttempts) {
+    try {
+      const result = await conversationsApi.getConversationsCalls();
+      const calls = result?.entities || [];
+
+      for (const call of calls) {
+        const participants = call.participants || [];
+        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
+        const popUrl = participants.flatMap(p => p.attributes?.UD_ScreenPop_URL || []).find(Boolean);
+
+        if (agent?.state === 'connected' && popUrl && !crmTab) {
+          openHOMESTab(popUrl, user.email, localStorage.getItem('homesToken'));
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Error checking active calls:', err);
+    }
+
+    await new Promise(r => setTimeout(r, 2200));
+    attempts++;
+  }
+}
+
+// ====================== Main Initialization ======================
 
 async function init() {
   try {
-    let config = getQueryParams();
+    updateStatus('Starting initialization...', 'info');
+
+    const config = getQueryParams();
     let { token, expiresIn } = parseHashToken();
 
+    // Token from parent window (embedded scenario)
+    const tokenFromParent = new URLSearchParams(window.location.search).get('token');
     if (tokenFromParent) {
       token = tokenFromParent;
       expiresIn = 3600;
-      localStorage.setItem('homesToken', tokenFromParent);
+      localStorage.setItem('homesToken', token);
       localStorage.setItem('homesTokenExpires', Date.now() + 3600 * 1000);
+      updateStatus('Token received from parent window', 'success');
     }
 
+    // Fallback to stored config
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-      const stored = JSON.parse(localStorage.getItem('homesConfig')||'{}');
-      config.gc_clientId = config.gc_clientId || stored.gc_clientId;
-      config.gc_region = config.gc_region || stored.gc_region;
-      config.gc_redirectUrl = config.gc_redirectUrl || stored.gc_redirectUrl;
-      updateStatus('Restored configuration from localStorage', 'info');
+      const stored = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+      Object.assign(config, {
+        gc_clientId: config.gc_clientId || stored.gc_clientId,
+        gc_region: config.gc_region || stored.gc_region,
+        gc_redirectUrl: config.gc_redirectUrl || stored.gc_redirectUrl
+      });
     }
 
-    if (!token || expiresIn<=0) {
-      const oauthHost = getOAuthHost(config.gc_region);
-      window.location.href = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}`;
+    if (!config.gc_clientId || !config.gc_region) {
+      updateStatus('Missing required configuration (clientId or region)', 'error');
       return;
     }
 
+    // Redirect to login if no valid token
+    if (!token || expiresIn <= 30) {
+      const oauthHost = getOAuthHost(config.gc_region);
+      const redirectUri = encodeURIComponent(config.gc_redirectUrl);
+
+      updateStatus('No valid token found — redirecting to Genesys Cloud login...', 'info');
+
+      window.location.href = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${redirectUri}`;
+      return;
+    }
+
+    // Save config
     localStorage.setItem('homesConfig', JSON.stringify(config));
 
+    // Setup SDK
     client.setEnvironment(getApiHost(config.gc_region));
-    client.setPersistSettings(true,'homesClient');
+    client.setPersistSettings(true, 'homesClient');
     client.setAccessToken(token);
 
     notificationsApi = new platformClient.NotificationsApi();
     conversationsApi = new platformClient.ConversationsApi();
     usersApi = new platformClient.UsersApi();
 
-    const user = await usersApi.getUsersMe();
-    if (blockedAgentIds.includes(user.id)) return;
+    currentUser = await usersApi.getUsersMe();
 
-    updateStatus(`Logged in as: ${user.name}`, 'success');
+    if (BLOCKED_AGENT_IDS.includes(currentUser.id)) {
+      updateStatus('Access denied for this user ID', 'error');
+      return;
+    }
 
+    updateStatus(`Logged in successfully as: ${currentUser.name} (${currentUser.email})`, 'success');
+
+    // Setup Notifications Channel
     const channel = await notificationsApi.postNotificationsChannels();
-    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [{id:`v2.users.${user.id}.conversations.calls`}]);
-    const socket = new WebSocket(channel.connectUri);
+    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [
+      { id: `v2.users.${currentUser.id}.conversations.calls` }
+    ]);
 
-    socket.onopen = () => updateStatus('WebSocket connected.');
-    socket.onclose = () => updateStatus('WebSocket closed.');
-    socket.onerror = (err) => updateStatus('WebSocket error','error');
+    notificationSocket = new WebSocket(channel.connectUri);
 
-    socket.onmessage = async (evt) => {
+    notificationSocket.onopen = () => updateStatus('Notification WebSocket connected.', 'success');
+    notificationSocket.onclose = () => updateStatus('WebSocket connection closed.', 'warning');
+    notificationSocket.onerror = () => updateStatus('WebSocket error occurred.', 'error');
+
+    notificationSocket.onmessage = (evt) => {
       try {
         const data = JSON.parse(evt.data);
         const interaction = data.eventBody;
-        if (!interaction) return;
+        if (!interaction?.participants) return;
 
-        const participants = interaction.participants || [];
-        const agent = participants.find(p=>p.purpose==='agent' && p.user?.id===user.id);
-        const popUrl = participants.map(p=>p.attributes?.UD_ScreenPop_URL).find(u=>u);
+        const participants = interaction.participants;
+        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === currentUser.id);
+        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+
         if (!agent) return;
 
-        if (agent.state==='connected' && popUrl && !crmTab) {
-          const url = new URL(popUrl);
-          url.searchParams.set('p2', user.email);
-          url.searchParams.set('token', localStorage.getItem('homesToken'));
-          crmTab = window.open(url.toString(), '_blank');
-
-          function handleReady(event) {
-            if (event.source === crmTab && event.data?.type === 'homesReady') {
-              crmTab.postMessage({
-                type: 'homesConfig',
-                config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-                token: localStorage.getItem('homesToken')
-              }, '*');
-              updateStatus('HOMES config sent to new tab.');
-              window.removeEventListener('message', handleReady);
-            }
-          }
-          window.addEventListener('message', handleReady);
-          updateStatus('Opening HOMES tab, waiting for tab readiness...');
+        if (agent.state === 'connected' && popUrl && !crmTab) {
+          openHOMESTab(popUrl, currentUser.email, token);
         }
 
-        if ((agent.state==='disconnected'||agent.state==='terminated') && crmTab && !crmTab.closed) {
+        if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab && !crmTab.closed) {
           crmTab.close();
-          crmTab=null;
-          updateStatus('Closed HOMES tab after wrap-up.');
+          crmTab = null;
+          updateStatus('Closed HOMES tab after call ended.', 'info');
         }
-      } catch(err) { console.error(err); }
+      } catch (err) {
+        console.error('Error processing notification:', err);
+      }
     };
 
-    if(window._genesys?.widgets?.bus){
-      window._genesys.widgets.bus.subscribe('lifecycle', e=>{
-        if(e?.eventName==='stop'){
-          if(crmTab && !crmTab.closed) crmTab.close(); crmTab=null;
-          if(socket && socket.readyState===WebSocket.OPEN) socket.close();
-          updateStatus('Closed CRM tab and WebSocket due to widget stop.');
-        }
-      });
-    }
+    // Check for already active calls
+    await checkExistingActiveCalls(currentUser);
 
-    checkExistingActiveCalls(user, conversationsApi, 0);
-  } catch(err){
+    updateStatus('HOMES Client initialized successfully.', 'success');
+
+  } catch (err) {
     console.error(err);
-    updateStatus(`Initialization error: ${err.message}`,'error');
+    updateStatus(`Initialization failed: ${err.message}`, 'error');
   }
 }
 
-function logout(){
-  if(confirm('Clear token and logout?')){
-    if(client) client.logout();
-    localStorage.removeItem('homesToken');
-    localStorage.removeItem('homesTokenExpires');
-    localStorage.removeItem('homesTokenType');
-    localStorage.removeItem('homesConfig');
-    window.location.hash=''; window.location.reload();
-  }
+function logout() {
+  if (!confirm('Clear all tokens and logout?')) return;
+
+  if (client) client.logout?.();
+
+  localStorage.removeItem('homesToken');
+  localStorage.removeItem('homesTokenExpires');
+  localStorage.removeItem('homesTokenType');
+  localStorage.removeItem('homesConfig');
+
+  if (crmTab && !crmTab.closed) crmTab.close();
+  if (notificationSocket) notificationSocket.close();
+
+  window.location.hash = '';
+  window.location.reload();
 }
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  if (crmTab && !crmTab.closed) crmTab.close();
+  if (notificationSocket && notificationSocket.readyState === WebSocket.OPEN) {
+    notificationSocket.close();
+  }
+});
 
 window.onload = init;
 </script>
