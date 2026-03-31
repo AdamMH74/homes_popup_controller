@@ -50,6 +50,7 @@
       font-size: 14px;
     }
     button:hover { background-color: #003d99; }
+    button:disabled { background-color: #888; cursor: not-allowed; }
     .version { font-size: 12px; color: #888; margin-top: 12px; }
   </style>
 </head>
@@ -61,6 +62,7 @@
     <p class="info">Initializing HOMES Client & Popup Controller...</p>
   </div>
 
+  <button id="openHomesBtn" disabled>Open HOMES CRM</button>
   <button onclick="logout()">Logout & Clear Token</button>
 
   <div class="version">
@@ -82,8 +84,7 @@ let usersApi = null;
 let currentUser = null;
 let notificationSocket = null;
 
-let lastPopUrl = null;      // Prevent duplicate screen pops for the same URL
-let isOpeningTab = false;   // Debounce flag
+let pendingPopUrl = null; // Store pop URL until user clicks button
 
 function updateStatus(message, type = 'info') {
   const statusBox = document.getElementById('statusBox');
@@ -115,7 +116,6 @@ function normalizeRegion(region) {
     .replace(/^https?:\/\//, '')
     .replace(/^login\./, '')
     .replace(/^api\./, '');
-
   if (r.startsWith('purecloud.')) {
     r = 'mypurecloud.' + r.split('purecloud.')[1];
   }
@@ -161,45 +161,29 @@ function parseHashToken() {
   return { token, expiresIn: parseInt(expiresIn || 0, 10) };
 }
 
-// ====================== Screen Pop Handling ======================
+// ====================== HOMES Tab Opening ======================
 
-function openHOMESTab(popUrl, userEmail, token) {
+function openHOMESTab(popUrl) {
   if (!popUrl) return;
 
-  // Force test tab
-  popUrl = 'https://AdamMH74.github.io/homes_popup_controller/Home_crm.html';  // <-- use local test file
-
-  if (popUrl === lastPopUrl) {
-    //updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
-    return;
-  }
-
-  if (isOpeningTab || (crmTab && !crmTab.closed)) {
-    updateStatus('HOMES tab is already open or being opened - skipping', 'warning');
-    return;
-  }
-
-  isOpeningTab = true;
-  lastPopUrl = popUrl;
-
   try {
+    const userEmail = currentUser?.email;
+    const token = localStorage.getItem('homesToken');
+
     const url = new URL(popUrl);
     url.searchParams.set('p2', userEmail || '');
     if (token) url.searchParams.set('token', token);
 
     crmTab = window.open(url.toString(), '_blank');
-
-    updateStatus('Opening HOMES CRM tab...', 'info');
+    updateStatus('HOMES CRM tab opened by user.', 'success');
 
     const handleReady = (event) => {
       if (event.source === crmTab && event.data?.type === 'homesReady') {
-        const targetOrigin = new URL(popUrl).origin;
-
         crmTab.postMessage({
           type: 'homesConfig',
           config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
           token: localStorage.getItem('homesToken')
-        }, targetOrigin);
+        }, new URL(popUrl).origin);
 
         updateStatus('HOMES config sent to CRM tab.', 'success');
         window.removeEventListener('message', handleReady);
@@ -208,12 +192,7 @@ function openHOMESTab(popUrl, userEmail, token) {
 
     window.addEventListener('message', handleReady);
 
-    setTimeout(() => {
-      isOpeningTab = false;
-    }, 10000);
-
   } catch (err) {
-    isOpeningTab = false;
     updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
   }
 }
@@ -236,16 +215,12 @@ async function checkExistingActiveCalls(user) {
       for (const call of calls) {
         const participants = call.participants || [];
         const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
+        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
 
-        if (agent?.state !== 'connected') continue;
-
-        const popUrl = participants
-          .map(p => p.attributes?.UD_ScreenPop_URL)
-          .find(url => url);
-
-        if (popUrl) {
-          updateStatus('Found existing active call with screen pop URL', 'info');
-          openHOMESTab(popUrl, user.email, localStorage.getItem('homesToken'));
+        if (agent?.state === 'connected' && popUrl) {
+          pendingPopUrl = popUrl;
+          document.getElementById('openHomesBtn').disabled = false;
+          updateStatus('Existing call found. Click button to open HOMES CRM.', 'info');
           return;
         }
       }
@@ -259,6 +234,15 @@ async function checkExistingActiveCalls(user) {
 
   updateStatus('No active calls with screen pop found.', 'info');
 }
+
+// ====================== Button Handler ======================
+
+document.getElementById('openHomesBtn').addEventListener('click', () => {
+  if (!pendingPopUrl) return;
+  openHOMESTab(pendingPopUrl);
+  pendingPopUrl = null;
+  document.getElementById('openHomesBtn').disabled = true;
+});
 
 // ====================== Main Initialization ======================
 
@@ -287,7 +271,6 @@ async function init() {
       });
     }
 
-    // ✅ Robust config recovery
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
       updateStatus('Config missing after merge — forcing reload with stored config...', 'warning');
 
@@ -363,14 +346,17 @@ async function init() {
         if (!agent) return;
 
         if (agent.state === 'connected' && popUrl) {
-          openHOMESTab(popUrl, currentUser.email, token);
+          pendingPopUrl = popUrl;
+          document.getElementById('openHomesBtn').disabled = false;
+          updateStatus('Call ready for screen pop. Click button to open HOMES CRM.', 'info');
         }
 
         if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab && !crmTab.closed) {
           crmTab.close();
           crmTab = null;
-          lastPopUrl = null;
-          updateStatus('Closed HOMES tab after call ended.', 'info');
+          pendingPopUrl = null;
+          document.getElementById('openHomesBtn').disabled = true;
+          updateStatus('Call ended. HOMES tab closed.', 'info');
         }
       } catch (err) {
         console.error('Error processing notification:', err);
