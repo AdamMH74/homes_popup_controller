@@ -166,13 +166,11 @@ function parseHashToken() {
 function openHOMESTab(popUrl, userEmail, token) {
   if (!popUrl) return;
 
-  // Prevent duplicate for the same URL
   if (popUrl === lastPopUrl) {
     updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
     return;
   }
 
-  // Prevent multiple simultaneous attempts
   if (isOpeningTab || (crmTab && !crmTab.closed)) {
     updateStatus('HOMES tab is already open or being opened - skipping', 'warning');
     return;
@@ -192,11 +190,13 @@ function openHOMESTab(popUrl, userEmail, token) {
 
     const handleReady = (event) => {
       if (event.source === crmTab && event.data?.type === 'homesReady') {
+        const targetOrigin = new URL(popUrl).origin;
+
         crmTab.postMessage({
           type: 'homesConfig',
           config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
           token: localStorage.getItem('homesToken')
-        }, '*');
+        }, targetOrigin);
 
         updateStatus('HOMES config sent to CRM tab.', 'success');
         window.removeEventListener('message', handleReady);
@@ -205,7 +205,6 @@ function openHOMESTab(popUrl, userEmail, token) {
 
     window.addEventListener('message', handleReady);
 
-    // Reset debounce flag after reasonable time
     setTimeout(() => {
       isOpeningTab = false;
     }, 10000);
@@ -234,7 +233,7 @@ async function checkExistingActiveCalls(user) {
       for (const call of calls) {
         const participants = call.participants || [];
         const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-        
+
         if (agent?.state !== 'connected') continue;
 
         const popUrl = participants
@@ -244,7 +243,7 @@ async function checkExistingActiveCalls(user) {
         if (popUrl) {
           updateStatus('Found existing active call with screen pop URL', 'info');
           openHOMESTab(popUrl, user.email, localStorage.getItem('homesToken'));
-          return;   // Stop checking once we open a tab
+          return;
         }
       }
     } catch (err) {
@@ -285,16 +284,35 @@ async function init() {
       });
     }
 
-    if (!config.gc_clientId || !config.gc_region) {
-      updateStatus('Missing required configuration (clientId or region)', 'error');
+    // ✅ Robust config recovery
+    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+      updateStatus('Config missing after merge — forcing reload with stored config...', 'warning');
+
+      const stored = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+
+      if (stored.gc_clientId && stored.gc_region && stored.gc_redirectUrl) {
+        const params = new URLSearchParams({
+          gc_clientId: stored.gc_clientId,
+          gc_region: stored.gc_region,
+          gc_redirectUrl: stored.gc_redirectUrl
+        });
+
+        window.location.search = params.toString();
+        return;
+      }
+
+      updateStatus('No stored config available — cannot recover.', 'error');
       return;
     }
 
     if (!token || expiresIn <= 30) {
+      localStorage.setItem('homesConfig', JSON.stringify(config));
+
       const oauthHost = getOAuthHost(config.gc_region);
       const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
       updateStatus('No valid token found — redirecting to Genesys Cloud login...', 'info');
+
       window.location.href = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${redirectUri}`;
       return;
     }
@@ -318,7 +336,6 @@ async function init() {
 
     updateStatus(`Logged in successfully as: ${currentUser.name} (${currentUser.email})`, 'success');
 
-    // Setup Notifications
     const channel = await notificationsApi.postNotificationsChannels();
     await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [
       { id: `v2.users.${currentUser.id}.conversations.calls` }
@@ -349,7 +366,7 @@ async function init() {
         if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab && !crmTab.closed) {
           crmTab.close();
           crmTab = null;
-          lastPopUrl = null;           // Reset so new calls can pop again
+          lastPopUrl = null;
           updateStatus('Closed HOMES tab after call ended.', 'info');
         }
       } catch (err) {
@@ -357,7 +374,6 @@ async function init() {
       }
     };
 
-    // Check for already active calls on load
     await checkExistingActiveCalls(currentUser);
 
     updateStatus('HOMES Client initialized successfully.', 'success');
@@ -385,7 +401,6 @@ function logout() {
   window.location.reload();
 }
 
-// Cleanup on page unload
 window.addEventListener('beforeunload', () => {
   if (crmTab && !crmTab.closed) crmTab.close();
   if (notificationSocket && notificationSocket.readyState === WebSocket.OPEN) {
