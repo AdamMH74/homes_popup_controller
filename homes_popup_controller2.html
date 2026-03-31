@@ -257,10 +257,10 @@ function parseHashToken() {
 
 /* ===================================================================== */
 
-function openHOMESTab(popUrl, forceTestUrl = true) {
-  // ✅ Force test URL if requested
-  if (forceTestUrl || !popUrl) {
-    updateStatus('Using forced test URL for HOMES CRM...', 'warning');
+function openHOMESTab(popUrl) {
+  // For testing: use hardcoded URL if none provided
+  if (!popUrl) {
+    updateStatus('No screen pop URL found — using fallback test URL.', 'warning');
     popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
   }
 
@@ -268,11 +268,17 @@ function openHOMESTab(popUrl, forceTestUrl = true) {
     const userEmail = currentUser?.email;
     const token = localStorage.getItem('homesToken');
 
+    // Open a blank tab immediately on user click
+    crmTab = window.open('about:blank', '_blank');
+
+    // Construct the URL with query params
     const url = new URL(popUrl);
     url.searchParams.set('p2', userEmail || '');
     if (token) url.searchParams.set('token', token);
 
-    crmTab = window.open(url.toString(), '_blank');
+    // Navigate the previously opened tab
+    crmTab.location.href = url.toString();
+
     updateStatus('HOMES CRM tab opened by user.', 'success');
 
   } catch (err) {
