@@ -164,15 +164,15 @@ function parseHashToken() {
 // ====================== HOMES Tab Opening ======================
 
 function openHOMESTab(popUrl) {
-    if (!popUrl) return;
+  if (!popUrl) return;
+  // Force test tab 
+  popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html'; // <-- local test file
 
-    // FIX 404: Correct case for GitHub Pages file
-    popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';
-
-    const url = new URL(popUrl);
+  try {
     const userEmail = currentUser?.email;
     const token = localStorage.getItem('homesToken');
 
+    const url = new URL(popUrl);
     url.searchParams.set('p2', userEmail || '');
     if (token) url.searchParams.set('token', token);
 
@@ -180,63 +180,201 @@ function openHOMESTab(popUrl) {
     updateStatus('HOMES CRM tab opened by user.', 'success');
 
     const handleReady = (event) => {
-        if (event.source === crmTab && event.data?.type === 'homesReady') {
-            crmTab.postMessage({
-                type: 'homesConfig',
-                config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-                token: localStorage.getItem('homesToken')
-            }, new URL(popUrl).origin);
+      if (event.source === crmTab && event.data?.type === 'homesReady') {
+        crmTab.postMessage({
+          type: 'homesConfig',
+          config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+          token: localStorage.getItem('homesToken')
+        }, new URL(popUrl).origin);
 
-            updateStatus('HOMES config sent to CRM tab.', 'success');
-            window.removeEventListener('message', handleReady);
-        }
+        updateStatus('HOMES config sent to CRM tab.', 'success');
+        window.removeEventListener('message', handleReady);
+      }
     };
 
     window.addEventListener('message', handleReady);
+
+  } catch (err) {
+    updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
+  }
 }
 
-// ====================== Notification Handler (Fixed Single Pop per Call) ======================
-const activePopCalls = new Set(); // Track calls that already triggered screen pop
+// ====================== Existing Calls Check ======================
 
-notificationSocket.onmessage = (evt) => {
+async function checkExistingActiveCalls(user) {
+  if (!conversationsApi || !user) return;
+
+  updateStatus('Checking for existing active calls...', 'info');
+
+  let attempts = 0;
+  const maxAttempts = 12;
+
+  while (attempts < maxAttempts) {
     try {
-        const data = JSON.parse(evt.data);
-        const interaction = data.eventBody;
-        if (!interaction?.participants) return;
+      const result = await conversationsApi.getConversationsCalls();
+      const calls = result?.entities || [];
 
-        const participants = interaction.participants;
-        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === currentUser.id);
+      for (const call of calls) {
+        const participants = call.participants || [];
+        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
         const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
 
-        if (!agent || !popUrl) return;
-
-        const callId = interaction.id || popUrl; // unique identifier for this call
-
-        // Only show "Call ready" message once per call
-        if (!activePopCalls.has(callId) && agent.state === 'connected') {
-            updateStatus('Call ready for screen pop. Click button to open HOMES CRM.', 'info');
-            activePopCalls.add(callId);
+        if (agent?.state === 'connected' && popUrl) {
+          pendingPopUrl = popUrl;
+          document.getElementById('openHomesBtn').disabled = false;
+          updateStatus('Existing call found. Click button to open HOMES CRM.', 'info');
+          return;
         }
-
-        // Open the tab only if it hasn’t been opened yet for this call
-        if (agent.state === 'connected' && (!crmTab || crmTab.closed)) {
-            openHOMESTab(popUrl);
-        }
-
-        // Close tab if call ended
-        if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab && !crmTab.closed) {
-            crmTab.close();
-            crmTab = null;
-            updateStatus('Closed HOMES tab after call ended.', 'info');
-
-            // Remove call from active set so future calls can trigger
-            activePopCalls.delete(callId);
-        }
-
+      }
     } catch (err) {
-        console.error('Error processing notification:', err);
+      console.warn('Error checking active calls:', err);
     }
-};
+
+    await new Promise(r => setTimeout(r, 2500));
+    attempts++;
+  }
+
+  updateStatus('No active calls with screen pop found.', 'info');
+}
+
+// ====================== Button Handler ======================
+
+document.getElementById('openHomesBtn').addEventListener('click', () => {
+  if (!pendingPopUrl) return;
+  openHOMESTab(pendingPopUrl);
+  pendingPopUrl = null;
+  document.getElementById('openHomesBtn').disabled = true;
+});
+
+// ====================== Main Initialization ======================
+
+async function init() {
+  try {
+    updateStatus('Starting initialization...', 'info');
+
+    const config = getQueryParams();
+    let { token, expiresIn } = parseHashToken();
+
+    const tokenFromParent = new URLSearchParams(window.location.search).get('token');
+    if (tokenFromParent) {
+      token = tokenFromParent;
+      expiresIn = 3600;
+      localStorage.setItem('homesToken', token);
+      localStorage.setItem('homesTokenExpires', Date.now() + 3600 * 1000);
+      updateStatus('Token received from parent window', 'success');
+    }
+
+    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+      const stored = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+      Object.assign(config, {
+        gc_clientId: config.gc_clientId || stored.gc_clientId,
+        gc_region: config.gc_region || stored.gc_region,
+        gc_redirectUrl: config.gc_redirectUrl || stored.gc_redirectUrl
+      });
+    }
+
+    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+      updateStatus('Config missing after merge — forcing reload with stored config...', 'warning');
+
+      const stored = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+
+      if (stored.gc_clientId && stored.gc_region && stored.gc_redirectUrl) {
+        const params = new URLSearchParams({
+          gc_clientId: stored.gc_clientId,
+          gc_region: stored.gc_region,
+          gc_redirectUrl: stored.gc_redirectUrl
+        });
+
+        window.location.search = params.toString();
+        return;
+      }
+
+      updateStatus('No stored config available — cannot recover.', 'error');
+      return;
+    }
+
+    if (!token || expiresIn <= 30) {
+      localStorage.setItem('homesConfig', JSON.stringify(config));
+
+      const oauthHost = getOAuthHost(config.gc_region);
+      const redirectUri = encodeURIComponent(config.gc_redirectUrl);
+
+      updateStatus('No valid token found — redirecting to Genesys Cloud login...', 'info');
+
+      window.location.href = `https://${oauthHost}/oauth/authorize?response_type=token&client_id=${encodeURIComponent(config.gc_clientId)}&redirect_uri=${redirectUri}`;
+      return;
+    }
+
+    localStorage.setItem('homesConfig', JSON.stringify(config));
+
+    client.setEnvironment(getApiHost(config.gc_region));
+    client.setPersistSettings(true, 'homesClient');
+    client.setAccessToken(token);
+
+    notificationsApi = new platformClient.NotificationsApi();
+    conversationsApi = new platformClient.ConversationsApi();
+    usersApi = new platformClient.UsersApi();
+
+    currentUser = await usersApi.getUsersMe();
+
+    if (BLOCKED_AGENT_IDS.includes(currentUser.id)) {
+      updateStatus('Access denied for this user ID', 'error');
+      return;
+    }
+
+    updateStatus(`Logged in successfully as: ${currentUser.name} (${currentUser.email})`, 'success');
+
+    const channel = await notificationsApi.postNotificationsChannels();
+    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [
+      { id: `v2.users.${currentUser.id}.conversations.calls` }
+    ]);
+
+    notificationSocket = new WebSocket(channel.connectUri);
+
+    notificationSocket.onopen = () => updateStatus('Notification WebSocket connected.', 'success');
+    notificationSocket.onclose = () => updateStatus('WebSocket connection closed.', 'warning');
+    notificationSocket.onerror = () => updateStatus('WebSocket error occurred.', 'error');
+
+    // ====================== Notification Handler (User-Initiated) ======================
+    const activePopCalls = new Set(); // Track calls that already triggered screen pop
+
+    notificationSocket.onmessage = (evt) => {
+        try {
+            const data = JSON.parse(evt.data);
+            const interaction = data.eventBody;
+            if (!interaction?.participants) return;
+
+            const participants = interaction.participants;
+            const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === currentUser.id);
+            const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+
+            if (!agent || !popUrl) return;
+
+            const callId = interaction.id || popUrl; // unique identifier for this call
+
+            // Only show "Call ready" message once per call
+            if (!activePopCalls.has(callId) && agent.state === 'connected') {
+                updateStatus('Call ready for screen pop. Click button to open HOMES CRM.', 'info');
+                pendingPopUrl = popUrl;
+                document.getElementById('openHomesBtn').disabled = false;
+                activePopCalls.add(callId);
+            }
+
+            // Close tab if call ended
+            if ((agent.state === 'disconnected' || agent.state === 'terminated') && crmTab && !crmTab.closed) {
+                crmTab.close();
+                crmTab = null;
+                pendingPopUrl = null;
+                document.getElementById('openHomesBtn').disabled = true;
+                updateStatus('Closed HOMES tab after call ended.', 'info');
+
+                activePopCalls.delete(callId);
+            }
+
+        } catch (err) {
+            console.error('Error processing notification:', err);
+        }
+    };
 
     await checkExistingActiveCalls(currentUser);
 
