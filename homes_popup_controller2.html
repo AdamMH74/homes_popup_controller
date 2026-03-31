@@ -166,11 +166,11 @@ function parseHashToken() {
 function openHOMESTab(popUrl, userEmail, token) {
   if (!popUrl) return;
 
-  // Force test tab
-  popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';  // <-- local test file
+  // Use clean URL — no query parameters
+  popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';
 
   if (popUrl === lastPopUrl) {
-    //updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
+    updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
     return;
   }
 
@@ -181,37 +181,35 @@ function openHOMESTab(popUrl, userEmail, token) {
 
   lastPopUrl = popUrl;
 
-  // Create button instead of auto-opening
   const statusBox = document.getElementById('statusBox');
   const btn = document.createElement('button');
   btn.textContent = `Open HOMES CRM Tab`;
   btn.onclick = () => {
-  
-    const url = new URL(popUrl, window.location.origin);
-    url.searchParams.set('p2', userEmail || '');
-    if (token) url.searchParams.set('token', token);
-const handleReady = (event) => {
-  if (event.source === crmTab && event.data?.type === 'homesReady') {
-    const targetOrigin = new URL(popUrl, window.location.origin).origin;
 
-    crmTab.postMessage({
-      type: 'homesConfig',
-      config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-      token: localStorage.getItem('homesToken')
-    }, targetOrigin);
-
-    updateStatus('HOMES config sent to CRM tab.', 'success');
-    window.removeEventListener('message', handleReady);
-  }
-};
-
-window.addEventListener('message', handleReady);
-    crmTab = window.open(url.toString(), '_blank');
+    crmTab = window.open(popUrl, '_blank'); // open without query params
     updateStatus('HOMES CRM tab opened manually.', 'success');
+
+    const handleReady = (event) => {
+      if (event.source === crmTab && event.data?.type === 'homesReady') {
+        const targetOrigin = new URL(popUrl).origin;
+
+        crmTab.postMessage({
+          type: 'homesConfig',
+          config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+          token: localStorage.getItem('homesToken'),
+          userEmail: userEmail  // pass userEmail via postMessage
+        }, targetOrigin);
+
+        updateStatus('HOMES config sent to CRM tab.', 'success');
+        window.removeEventListener('message', handleReady);
+      }
+    };
+
+    window.addEventListener('message', handleReady);
   };
+
   statusBox.appendChild(btn);
   statusBox.scrollTop = statusBox.scrollHeight;
-
   updateStatus('Click the button to open HOMES CRM tab.', 'info');
 }
 
