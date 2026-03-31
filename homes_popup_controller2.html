@@ -258,9 +258,11 @@ function parseHashToken() {
 /* ===================================================================== */
 
 function openHOMESTab(popUrl) {
-  if (!popUrl) return;
-
+  // For testing: use hardcoded URL if none provided
+if (!popUrl) {
+  updateStatus('No screen pop URL found — using fallback test URL.', 'warning');
   popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
+}
 
   try {
     const userEmail = currentUser?.email;
@@ -367,11 +369,18 @@ if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
     currentUser = await safeGetCurrentUser();
 
     updateStatus(
-      `Logged in successfully as: ${currentUser.name} (${currentUser.email})`,
-      'success'
-    );
+  `Logged in successfully as: ${currentUser.name} (${currentUser.email})`,
+  'success'
+);
 
-    await checkExistingActiveCalls(currentUser);
+await checkExistingActiveCalls(currentUser);
+
+// ✅ ADD THIS LINE HERE
+document.getElementById('openHomesBtn')
+  .addEventListener('click', () => openHOMESTab(pendingPopUrl));
+
+
+
     updateStatus('HOMES Client initialized successfully.', 'success');
 
   } catch (err) {
