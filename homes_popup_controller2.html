@@ -166,7 +166,7 @@ function parseHashToken() {
 function openHOMESTab(popUrl, userEmail, token) {
   if (!popUrl) return;
 
-  // Use clean URL — no query parameters
+  // Use clean URL — no query params
   popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';
 
   if (popUrl === lastPopUrl) {
@@ -186,9 +186,11 @@ function openHOMESTab(popUrl, userEmail, token) {
   btn.textContent = `Open HOMES CRM Tab`;
   btn.onclick = () => {
 
-    crmTab = window.open(popUrl, '_blank'); // open without query params
+    // ✅ Open a true new browser tab
+    crmTab = window.open(popUrl, '_blank'); 
     updateStatus('HOMES CRM tab opened manually.', 'success');
 
+    // Send config and token once the tab signals readiness
     const handleReady = (event) => {
       if (event.source === crmTab && event.data?.type === 'homesReady') {
         const targetOrigin = new URL(popUrl).origin;
@@ -197,7 +199,7 @@ function openHOMESTab(popUrl, userEmail, token) {
           type: 'homesConfig',
           config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
           token: localStorage.getItem('homesToken'),
-          userEmail: userEmail  // pass userEmail via postMessage
+          userEmail: userEmail
         }, targetOrigin);
 
         updateStatus('HOMES config sent to CRM tab.', 'success');
