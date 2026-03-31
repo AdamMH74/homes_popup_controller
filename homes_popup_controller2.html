@@ -318,14 +318,21 @@ async function init() {
   try {
     updateStatus('Starting initialization...', 'info');
 
-    const config = getQueryParams();
+    let config = getQueryParams();
+
+// ✅ FIX — fallback to stored config if query params missing
+if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+  config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+}
     let { token } = parseHashToken();
 
     // ✅ FIX
     const expiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
 
     if (!token || !expiry || Date.now() > expiry) {
-      localStorage.setItem('homesConfig', JSON.stringify(config));
+      if (config.gc_clientId && config.gc_region && config.gc_redirectUrl) {
+  localStorage.setItem('homesConfig', JSON.stringify(config));
+}
 
       // ✅ FIX
       if (!guardRedirectLoop()) return;
