@@ -163,64 +163,56 @@ function parseHashToken() {
 
 // ====================== Screen Pop Handling ======================
 
-// ====================== Fixed Open HOMES CRM Tab ======================
 function openHOMESTab(popUrl, userEmail, token) {
-    if (!popUrl) return;
+  if (!popUrl) return;
 
-    // Use clean URL — no query parameters
-    popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';
+  // Force test tab
+  popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';  // <-- local test file
 
-    // Prevent duplicate pops
-    if (popUrl === lastPopUrl) {
-        updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
-        return;
-    }
+  if (popUrl === lastPopUrl) {
+    updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
+    return;
+  }
 
-    if (isOpeningTab || (crmTab && !crmTab.closed)) {
-        updateStatus('HOMES tab is already open or being opened - skipping', 'warning');
-        return;
-    }
+  if (isOpeningTab || (crmTab && !crmTab.closed)) {
+    updateStatus('HOMES tab is already open or being opened - skipping', 'warning');
+    return;
+  }
 
-    lastPopUrl = popUrl;
+  lastPopUrl = popUrl;
 
-    // Create manual "Open Tab" button
-    const statusBox = document.getElementById('statusBox');
-    const btn = document.createElement('button');
-    btn.textContent = `Open HOMES CRM Tab`;
-    btn.onclick = () => {
-        // Open real new tab
-        crmTab = window.open(popUrl, '_blank');
-        if (!crmTab) {
-            updateStatus('Failed to open new tab — check popup blocker.', 'error');
-            return;
-        }
+  // Create button instead of auto-opening
+  const statusBox = document.getElementById('statusBox');
+  const btn = document.createElement('button');
+  btn.textContent = `Open HOMES CRM Tab`;
+  btn.onclick = () => {
+  
+    const url = new URL(popUrl, window.location.origin);
+    url.searchParams.set('p2', userEmail || '');
+    if (token) url.searchParams.set('token', token);
+const handleReady = (event) => {
+  if (event.source === crmTab && event.data?.type === 'homesReady') {
+    const targetOrigin = new URL(popUrl, window.location.origin).origin;
 
-        updateStatus('HOMES CRM tab opened manually.', 'success');
+    crmTab.postMessage({
+      type: 'homesConfig',
+      config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+      token: localStorage.getItem('homesToken')
+    }, targetOrigin);
 
-        // Listen for "homesReady" signal from child tab
-        const handleReady = (event) => {
-            if (event.source === crmTab && event.data?.type === 'homesReady') {
-                const targetOrigin = new URL(popUrl).origin;
+    updateStatus('HOMES config sent to CRM tab.', 'success');
+    window.removeEventListener('message', handleReady);
+  }
+};
 
-                // Send config, token, and userEmail via postMessage
-                crmTab.postMessage({
-                    type: 'homesConfig',
-                    config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-                    token: localStorage.getItem('homesToken'),
-                    userEmail: userEmail
-                }, targetOrigin);
+window.addEventListener('message', handleReady);
+    crmTab = window.open(url.toString(), '_blank');
+    updateStatus('HOMES CRM tab opened manually.', 'success');
+  };
+  statusBox.appendChild(btn);
+  statusBox.scrollTop = statusBox.scrollHeight;
 
-                updateStatus('HOMES config sent to CRM tab.', 'success');
-                window.removeEventListener('message', handleReady);
-            }
-        };
-
-        window.addEventListener('message', handleReady);
-    };
-
-    statusBox.appendChild(btn);
-    statusBox.scrollTop = statusBox.scrollHeight;
-    updateStatus('Click the button to open HOMES CRM tab.', 'info');
+  updateStatus('Click the button to open HOMES CRM tab.', 'info');
 }
 
 // ====================== Existing Calls Check ======================
