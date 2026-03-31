@@ -111,11 +111,27 @@ function forceReauth() {
 
   window.location.hash = '';
 
-  const config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+  // ✅ Try localStorage first
+  let config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+
+  // ✅ FALLBACK: rebuild config from current URL (Genesys Client Apps launch)
+  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+    const params = new URLSearchParams(window.location.search);
+    config = {
+      gc_clientId: params.get('gc_clientId'),
+      gc_region: params.get('gc_region'),
+      gc_redirectUrl: params.get('gc_redirectUrl')
+    };
+  }
+
+  // ✅ Still missing? Then we truly can't continue
   if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
     updateStatus('Cannot reauthenticate — missing config.', 'error');
     return;
   }
+
+  // ✅ Persist recovered config for next time
+  localStorage.setItem('homesConfig', JSON.stringify(config));
 
   const oauthHost = getOAuthHost(config.gc_region);
   const redirectUri = encodeURIComponent(config.gc_redirectUrl);
