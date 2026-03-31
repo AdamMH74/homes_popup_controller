@@ -100,7 +100,23 @@ function updateStatus(message, type = 'info') {
 }
 
 /* =====================================================================
-   FIX #1 — Force re-auth on invalid / expired credentials
+   ✅ FIX — Redirect loop protection
+===================================================================== */
+function guardRedirectLoop() {
+  const MAX_REDIRECTS = 3;
+  const count = parseInt(sessionStorage.getItem('authRedirects') || '0', 10);
+
+  if (count > MAX_REDIRECTS) {
+    updateStatus('Authentication loop detected. Please reload manually.', 'error');
+    return false;
+  }
+
+  sessionStorage.setItem('authRedirects', count + 1);
+  return true;
+}
+
+/* =====================================================================
+   FIX #1 — Force re-auth
 ===================================================================== */
 function forceReauth() {
   updateStatus('Session expired or invalid — redirecting to login...', 'warning');
@@ -111,10 +127,8 @@ function forceReauth() {
 
   window.location.hash = '';
 
-  // ✅ Try localStorage first
   let config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
 
-  // ✅ FALLBACK: rebuild config from current URL (Genesys Client Apps launch)
   if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
     const params = new URLSearchParams(window.location.search);
     config = {
@@ -124,28 +138,33 @@ function forceReauth() {
     };
   }
 
-  // ✅ Still missing? Then we truly can't continue
   if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
     updateStatus('Cannot reauthenticate — missing config.', 'error');
     return;
   }
 
-  // ✅ Persist recovered config for next time
   localStorage.setItem('homesConfig', JSON.stringify(config));
 
   const oauthHost = getOAuthHost(config.gc_region);
   const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
+  // ✅ FIX
+  if (!guardRedirectLoop()) return;
+
+  // ✅ FIX
+  const state = Math.random().toString(36).substring(2);
+  sessionStorage.setItem('oauth_state', state);
+
   window.location.href =
     `https://${oauthHost}/oauth/authorize` +
     `?response_type=token` +
     `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-    `&redirect_uri=${redirectUri}`;
+    `&redirect_uri=${redirectUri}` +
+    `&state=${state}`;
 }
 
-/* =====================================================================
-   FIX #1 — Safe wrapper for first authenticated call
-===================================================================== */
+/* ===================================================================== */
+
 async function safeGetCurrentUser() {
   try {
     return await usersApi.getUsersMe();
@@ -160,9 +179,7 @@ async function safeGetCurrentUser() {
   }
 }
 
-/* =====================================================================
-   Configuration & Token Handling
-===================================================================== */
+/* ===================================================================== */
 
 function getQueryParams() {
   const params = new URLSearchParams(window.location.search);
@@ -203,10 +220,17 @@ function parseHashToken() {
   let expiresIn = params.get('expires_in');
   let tokenType = params.get('token_type');
 
+  // ✅ FIX
+  const returnedState = params.get('state');
+  const expectedState = sessionStorage.getItem('oauth_state');
+  if (returnedState && expectedState && returnedState !== expectedState) {
+    console.error('OAuth state mismatch');
+    return { token: null, expiresIn: 0 };
+  }
+
   if (token) {
     token = decodeURIComponent(token);
 
-    // FIX #3 — clock skew buffer
     const CLOCK_SKEW_SECONDS = 120;
     const expiry =
       Date.now() +
@@ -219,7 +243,6 @@ function parseHashToken() {
     token = localStorage.getItem('homesToken');
     const storedExpiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
 
-    // FIX #2 — expiry safety buffer
     const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
     if (token && storedExpiry && (storedExpiry - EXPIRY_BUFFER_MS) > Date.now()) {
@@ -232,14 +255,11 @@ function parseHashToken() {
   return { token, expiresIn: parseInt(expiresIn || 0, 10) };
 }
 
-/* =====================================================================
-   HOMES Tab Opening (unchanged)
-===================================================================== */
+/* ===================================================================== */
 
 function openHOMESTab(popUrl) {
   if (!popUrl) return;
 
-  /* TEST OVERRIDE REMAINS UNCHANGED */
   popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
 
   try {
@@ -258,9 +278,7 @@ function openHOMESTab(popUrl) {
   }
 }
 
-/* =====================================================================
-   Existing Calls Check (unchanged)
-===================================================================== */
+/* ===================================================================== */
 
 async function checkExistingActiveCalls(user) {
   if (!conversationsApi || !user) return;
@@ -294,27 +312,38 @@ async function checkExistingActiveCalls(user) {
   updateStatus('No active calls with screen pop found.', 'info');
 }
 
-/* =====================================================================
-   Main Init
-===================================================================== */
+/* ===================================================================== */
 
 async function init() {
   try {
     updateStatus('Starting initialization...', 'info');
 
     const config = getQueryParams();
-    let { token, expiresIn } = parseHashToken();
+    let { token } = parseHashToken();
 
-    if (!token || expiresIn <= 30) {
+    // ✅ FIX
+    const expiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
+
+    if (!token || !expiry || Date.now() > expiry) {
       localStorage.setItem('homesConfig', JSON.stringify(config));
+
+      // ✅ FIX
+      if (!guardRedirectLoop()) return;
+
       const oauthHost = getOAuthHost(config.gc_region);
       const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
+      // ✅ FIX
+      const state = Math.random().toString(36).substring(2);
+      sessionStorage.setItem('oauth_state', state);
+
       updateStatus('No valid token found — redirecting to Genesys Cloud login...', 'info');
+
       window.location.href =
         `https://${oauthHost}/oauth/authorize?response_type=token` +
         `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-        `&redirect_uri=${redirectUri}`;
+        `&redirect_uri=${redirectUri}` +
+        `&state=${state}`;
       return;
     }
 
@@ -328,7 +357,6 @@ async function init() {
     conversationsApi = new platformClient.ConversationsApi();
     usersApi = new platformClient.UsersApi();
 
-    // ✅ FIX #1 applied here
     currentUser = await safeGetCurrentUser();
 
     updateStatus(
@@ -350,6 +378,7 @@ function logout() {
 
   if (client) client.logout?.();
   localStorage.clear();
+  sessionStorage.clear(); // ✅ FIX
   window.location.reload();
 }
 
