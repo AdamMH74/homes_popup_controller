@@ -5,6 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HOMES - CRM</title>
 </head>
+<script>
+window.addEventListener('message', (event) => {
+    if (event.data?.type === 'homesConfig') {
+        const { config, token, userEmail } = event.data;
+        console.log('Received config:', config);
+        console.log('Token:', token);
+        console.log('User email:', userEmail);
+
+        // Initialize your CRM page here
+    }
+});
+
+// Notify parent that tab is ready
+window.onload = () => {
+    if (window.opener) {
+        window.opener.postMessage({ type: 'homesReady' }, '*');
+    }
+};
+</script>
 <body>
     <h1>Main Page</h1>
 
