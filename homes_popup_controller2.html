@@ -167,10 +167,10 @@ function openHOMESTab(popUrl, userEmail, token) {
   if (!popUrl) return;
 
   // Force test tab
-  popUrl = 'https://adammh74.github.io/homes_popup_controller/home_crm.html';  // <-- local test file
+  popUrl = 'https://AdamMH74.github.io/homes_popup_controller/Home_crm.html';  // <-- use local test file
 
   if (popUrl === lastPopUrl) {
-    updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
+    //updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
     return;
   }
 
@@ -179,40 +179,43 @@ function openHOMESTab(popUrl, userEmail, token) {
     return;
   }
 
+  isOpeningTab = true;
   lastPopUrl = popUrl;
 
-  // Create button instead of auto-opening
-  const statusBox = document.getElementById('statusBox');
-  const btn = document.createElement('button');
-  btn.textContent = `Open HOMES CRM Tab`;
-  btn.onclick = () => {
-  
-    const url = new URL(popUrl, window.location.origin);
+  try {
+    const url = new URL(popUrl);
     url.searchParams.set('p2', userEmail || '');
     if (token) url.searchParams.set('token', token);
-const handleReady = (event) => {
-  if (event.source === crmTab && event.data?.type === 'homesReady') {
-    const targetOrigin = new URL(popUrl, window.location.origin).origin;
 
-    crmTab.postMessage({
-      type: 'homesConfig',
-      config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
-      token: localStorage.getItem('homesToken')
-    }, targetOrigin);
-
-    updateStatus('HOMES config sent to CRM tab.', 'success');
-    window.removeEventListener('message', handleReady);
-  }
-};
-
-window.addEventListener('message', handleReady);
     crmTab = window.open(url.toString(), '_blank');
-    updateStatus('HOMES CRM tab opened manually.', 'success');
-  };
-  statusBox.appendChild(btn);
-  statusBox.scrollTop = statusBox.scrollHeight;
 
-  updateStatus('Click the button to open HOMES CRM tab.', 'info');
+    updateStatus('Opening HOMES CRM tab...', 'info');
+
+    const handleReady = (event) => {
+      if (event.source === crmTab && event.data?.type === 'homesReady') {
+        const targetOrigin = new URL(popUrl).origin;
+
+        crmTab.postMessage({
+          type: 'homesConfig',
+          config: JSON.parse(localStorage.getItem('homesConfig') || '{}'),
+          token: localStorage.getItem('homesToken')
+        }, targetOrigin);
+
+        updateStatus('HOMES config sent to CRM tab.', 'success');
+        window.removeEventListener('message', handleReady);
+      }
+    };
+
+    window.addEventListener('message', handleReady);
+
+    setTimeout(() => {
+      isOpeningTab = false;
+    }, 10000);
+
+  } catch (err) {
+    isOpeningTab = false;
+    updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
+  }
 }
 
 // ====================== Existing Calls Check ======================
@@ -284,18 +287,23 @@ async function init() {
       });
     }
 
+    // ✅ Robust config recovery
     if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
       updateStatus('Config missing after merge — forcing reload with stored config...', 'warning');
+
       const stored = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+
       if (stored.gc_clientId && stored.gc_region && stored.gc_redirectUrl) {
         const params = new URLSearchParams({
           gc_clientId: stored.gc_clientId,
           gc_region: stored.gc_region,
           gc_redirectUrl: stored.gc_redirectUrl
         });
+
         window.location.search = params.toString();
         return;
       }
+
       updateStatus('No stored config available — cannot recover.', 'error');
       return;
     }
