@@ -166,6 +166,9 @@ function parseHashToken() {
 function openHOMESTab(popUrl, userEmail, token) {
   if (!popUrl) return;
 
+  // Force test tab
+  popUrl = 'home_crm.html';  // <-- use local test file
+
   if (popUrl === lastPopUrl) {
     updateStatus('Screen pop URL already handled - skipping duplicate', 'info');
     return;
