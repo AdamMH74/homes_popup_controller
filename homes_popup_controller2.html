@@ -264,7 +264,11 @@ function openHOMESTab(popUrl, forceTestUrl = true) {
     popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
   }
 
-  // ✅ Build the URL only here
+  try {
+    const userEmail = currentUser?.email;
+    const token = localStorage.getItem('homesToken');
+
+    // ✅ Build the URL only here
     const finalUrl = new URL(popUrl);
     finalUrl.searchParams.set('p2', userEmail || '');
     if (token) finalUrl.searchParams.set('token', token);
