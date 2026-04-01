@@ -257,7 +257,7 @@ function parseHashToken() {
 
 /* ===================================================================== */
 
-function openHOMESTab(popUrl, forceTestUrl = false) {
+function openHOMESTab(popUrl, forceTestUrl = true) {
   // ✅ Force test URL if requested
   if (forceTestUrl || !popUrl) {
     updateStatus('Using forced test URL for HOMES CRM...', 'warning');
