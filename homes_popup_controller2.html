@@ -269,7 +269,7 @@ function openHOMESTab(popUrl, forceTestUrl = true) {
     const token = localStorage.getItem('homesToken');
 
     // Open a blank tab immediately on user click
-    crmTab = window.open('about:blank', '_blank');
+    crmTab = window.open(url.toString(), '_blank');
 
     // Construct the URL with query params
     const url = new URL(popUrl);
