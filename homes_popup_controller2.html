@@ -257,10 +257,10 @@ function parseHashToken() {
 
 /* ===================================================================== */
 
-function openHOMESTab(popUrl) {
-  // For testing: use hardcoded URL if none provided
-  if (!popUrl) {
-    updateStatus('No screen pop URL found — using fallback test URL.', 'warning');
+function openHOMESTab(popUrl, forceTestUrl = false) {
+  // ✅ Force test URL if requested
+  if (forceTestUrl || !popUrl) {
+    updateStatus('Using forced test URL for HOMES CRM...', 'warning');
     popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
   }
 
