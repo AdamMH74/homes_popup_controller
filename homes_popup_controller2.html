@@ -264,25 +264,31 @@ function openHOMESTab(popUrl, forceTestUrl = true) {
   }
 
   try {
-    const userEmail = currentUser?.email;
+    const userEmail = currentUser?.email || '';
     const token = localStorage.getItem('homesToken');
 
+    // Build the final URL
     const finalUrl = new URL(popUrl);
-    finalUrl.searchParams.set('p2', userEmail || '');
+    finalUrl.searchParams.set('p2', userEmail);
     if (token) finalUrl.searchParams.set('token', token);
 
-    // Create a hidden link and click it
+    const urlString = finalUrl.toString();
+
+    // === PRIMARY METHOD: Synthetic <a> click (most reliable for gesture) ===
     const link = document.createElement('a');
-    link.href = finalUrl.toString();
+    link.href = urlString;
     link.target = '_blank';
-    link.rel = 'noopener noreferrer';   // security + helps some browsers
+    link.rel = 'noopener noreferrer';   // Important for security and some blockers
+
+    // Append → click → remove (all synchronous)
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    updateStatus('HOMES CRM tab opened by user.', 'success');
+    updateStatus('HOMES CRM tab opened successfully.', 'success');
 
   } catch (err) {
+    console.error('openHOMESTab error:', err);
     updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
   }
 }
