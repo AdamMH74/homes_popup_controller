@@ -299,7 +299,7 @@ function initClientApp() {
 async function init() {
   try {
     updateStatus('Initializing...', 'info');
-	await initClientApp();
+	updateStatus('Client App SDK skipped (standalone mode)', 'info');
 
     let config = getQueryParams();
     if (!config.gc_clientId) {
