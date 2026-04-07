@@ -6,22 +6,27 @@
     <title>HOMES - CRM</title>
 </head>
 <script>
-window.addEventListener('message', (event) => {
-    if (event.data?.type === 'homesConfig') {
-        const { config, token, userEmail } = event.data;
-        console.log('Received config:', config);
-        console.log('Token:', token);
-        console.log('User email:', userEmail);
+function getQueryParams() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+        token: params.get('token'),
+        p2: params.get('p2')
+    };
+}
 
-        // Initialize your CRM page here
-    }
-});
-
-// Notify parent that tab is ready
 window.onload = () => {
-    if (window.opener) {
-        window.opener.postMessage({ type: 'homesReady' }, '*');
+    const { token, p2 } = getQueryParams();
+
+    console.log('Token:', token);
+    console.log('User email:', p2);
+
+    if (!token) {
+        document.body.innerHTML = '<h2 style="color:red;">No token found — cannot authenticate</h2>';
+        return;
     }
+
+    // Initialize your CRM logic here using token and user email
+    document.body.innerHTML += `<p>Logged in as ${p2}</p>`;
 };
 </script>
 <body>
