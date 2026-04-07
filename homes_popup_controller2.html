@@ -74,131 +74,55 @@
 const VERSION = '1.3.1';
 const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
 
-let crmTab = null;
 let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
-let client = platformClient?.ApiClient.instance;
+let client = platformClient?.ApiClient?.instance;
 
 let notificationsApi = null;
-let conversationsApi = null;
 let usersApi = null;
 
 let currentUser = null;
 let notificationSocket = null;
 let pendingPopUrl = null;
 
+/* ================= STATUS ================= */
 function updateStatus(message, type = 'info') {
-  const statusBox = document.getElementById('statusBox');
-  if (!statusBox) return;
+  const box = document.getElementById('statusBox');
+  if (!box) return;
 
   const p = document.createElement('p');
   p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
   p.classList.add(type);
-  statusBox.appendChild(p);
-  statusBox.scrollTop = statusBox.scrollHeight;
+  box.appendChild(p);
+  box.scrollTop = box.scrollHeight;
 
-  console.log(`[HOMES v${VERSION}] [${type.toUpperCase()}]`, message);
+  console.log(`[HOMES v${VERSION}]`, message);
 }
 
-/* =====================================================================
-   ✅ FIX — Redirect loop protection
-===================================================================== */
+/* ================= REDIRECT GUARD ================= */
 function guardRedirectLoop() {
-  const MAX_REDIRECTS = 3;
   const count = parseInt(sessionStorage.getItem('authRedirects') || '0', 10);
-
-  if (count > MAX_REDIRECTS) {
-    updateStatus('Authentication loop detected. Please reload manually.', 'error');
+  if (count > 3) {
+    updateStatus('Auth loop detected.', 'error');
     return false;
   }
-
   sessionStorage.setItem('authRedirects', count + 1);
   return true;
 }
 
-/* =====================================================================
-   FIX #1 — Force re-auth
-===================================================================== */
-function forceReauth() {
-  updateStatus('Session expired or invalid — redirecting to login...', 'warning');
-
-  localStorage.removeItem('homesToken');
-  localStorage.removeItem('homesTokenExpires');
-  localStorage.removeItem('homesTokenType');
-
-  window.location.hash = '';
-
-  let config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
-
-  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-    const params = new URLSearchParams(window.location.search);
-    config = {
-      gc_clientId: params.get('gc_clientId'),
-      gc_region: params.get('gc_region'),
-      gc_redirectUrl: params.get('gc_redirectUrl')
-    };
-  }
-
-  if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-    updateStatus('Cannot reauthenticate — missing config.', 'error');
-    return;
-  }
-
-  localStorage.setItem('homesConfig', JSON.stringify(config));
-
-  const oauthHost = getOAuthHost(config.gc_region);
-  const redirectUri = encodeURIComponent(config.gc_redirectUrl);
-
-  // ✅ FIX
-  if (!guardRedirectLoop()) return;
-
-  // ✅ FIX
-  const state = Math.random().toString(36).substring(2);
-  sessionStorage.setItem('oauth_state', state);
-
-  window.location.href =
-    `https://${oauthHost}/oauth/authorize` +
-    `?response_type=token` +
-    `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-    `&redirect_uri=${redirectUri}` +
-    `&state=${state}`;
-}
-
-/* ===================================================================== */
-
-async function safeGetCurrentUser() {
-  try {
-    return await usersApi.getUsersMe();
-  } catch (err) {
-    if (
-      err?.status === 401 ||
-      err?.message?.toLowerCase().includes('invalid login credentials')
-    ) {
-      forceReauth();
-    }
-    throw err;
-  }
-}
-
-/* ===================================================================== */
-
+/* ================= CONFIG ================= */
 function getQueryParams() {
-  const params = new URLSearchParams(window.location.search);
+  const p = new URLSearchParams(window.location.search);
   return {
-    gc_clientId: params.get('gc_clientId'),
-    gc_region: params.get('gc_region'),
-    gc_redirectUrl: params.get('gc_redirectUrl')
+    gc_clientId: p.get('gc_clientId'),
+    gc_region: p.get('gc_region'),
+    gc_redirectUrl: p.get('gc_redirectUrl')
   };
 }
 
 function normalizeRegion(region) {
   if (!region) return null;
-  let r = region.toLowerCase().trim()
-    .replace(/^https?:\/\//, '')
-    .replace(/^login\./, '')
-    .replace(/^api\./, '');
-  if (r.startsWith('purecloud.')) {
-    r = 'mypurecloud.' + r.split('purecloud.')[1];
-  }
+  let r = region.toLowerCase().replace(/^https?:\/\//, '').replace(/^login\./, '').replace(/^api\./, '');
+  if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
   return r.includes('mypurecloud') ? r : null;
 }
 
@@ -212,203 +136,191 @@ function getApiHost(region) {
   return n ? `api.${n}` : 'api.mypurecloud.com';
 }
 
+/* ================= TOKEN ================= */
 function parseHashToken() {
-  const hash = window.location.hash.substring(1);
-  const params = new URLSearchParams(hash);
+  const hash = new URLSearchParams(window.location.hash.substring(1));
+  let token = hash.get('access_token');
 
-  let token = params.get('access_token');
-  let expiresIn = params.get('expires_in');
-  let tokenType = params.get('token_type');
-
-  // ✅ FIX
-  const returnedState = params.get('state');
+  const returnedState = hash.get('state');
   const expectedState = sessionStorage.getItem('oauth_state');
+
   if (returnedState && expectedState && returnedState !== expectedState) {
-    console.error('OAuth state mismatch');
-    return { token: null, expiresIn: 0 };
+    console.error('State mismatch');
+    return null;
   }
 
   if (token) {
-    token = decodeURIComponent(token);
-
-    const CLOCK_SKEW_SECONDS = 120;
-    const expiry =
-      Date.now() +
-      (parseInt(expiresIn || 3600, 10) - CLOCK_SKEW_SECONDS) * 1000;
-
     localStorage.setItem('homesToken', token);
-    localStorage.setItem('homesTokenExpires', expiry);
-    localStorage.setItem('homesTokenType', tokenType || 'bearer');
   } else {
     token = localStorage.getItem('homesToken');
-    const storedExpiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
-
-    const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
-
-    if (token && storedExpiry && (storedExpiry - EXPIRY_BUFFER_MS) > Date.now()) {
-      expiresIn = Math.floor((storedExpiry - Date.now()) / 1000);
-    } else {
-      token = null;
-    }
   }
 
-  return { token, expiresIn: parseInt(expiresIn || 0, 10) };
+  return token;
 }
 
-/* ===================================================================== */
+/* ================= AUTH ================= */
+function redirectToLogin(config) {
+  if (!guardRedirectLoop()) return;
 
-function openHOMESTab(popUrl, forceTestUrl = true) {
-  if (forceTestUrl || !popUrl) {
-    updateStatus('Using forced test URL for HOMES CRM...', 'warning');
-    popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
-  }
+  const state = Math.random().toString(36).substring(2);
+  sessionStorage.setItem('oauth_state', state);
 
+  const url =
+    `https://${getOAuthHost(config.gc_region)}/oauth/authorize` +
+    `?response_type=token` +
+    `&client_id=${encodeURIComponent(config.gc_clientId)}` +
+    `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}` +
+    `&state=${state}`;
+
+  window.location.href = url;
+}
+
+/* ================= WEBSOCKET ================= */
+async function setupNotifications(userId) {
   try {
-    const userEmail = currentUser?.email || '';
-    const token = localStorage.getItem('homesToken');
+    updateStatus('Creating notification channel...', 'info');
 
-    // Build the final URL
-    const finalUrl = new URL(popUrl);
-    finalUrl.searchParams.set('p2', userEmail);
-    if (token) finalUrl.searchParams.set('token', token);
+    const channel = await notificationsApi.postNotificationsChannels();
 
-    const urlString = finalUrl.toString();
+    await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [
+      { id: `v2.users.${userId}.conversations.calls` }
+    ]);
 
-    // === PRIMARY METHOD: Synthetic <a> click (most reliable for gesture) ===
-    const link = document.createElement('a');
-    link.href = urlString;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';   // Important for security and some blockers
+    notificationSocket = new WebSocket(channel.connectUri);
 
-    // Append → click → remove (all synchronous)
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    notificationSocket.onopen = () => {
+      updateStatus('WebSocket connected.', 'success');
+    };
 
-    updateStatus('HOMES CRM tab opened successfully.', 'success');
+    notificationSocket.onmessage = (msg) => {
+      const data = JSON.parse(msg.data);
 
-  } catch (err) {
-    console.error('openHOMESTab error:', err);
-    updateStatus(`Failed to open HOMES tab: ${err.message}`, 'error');
-  }
-}
-
-/* ===================================================================== */
-
-async function checkExistingActiveCalls(user) {
-  if (!conversationsApi || !user) return;
-
-  let attempts = 0;
-  const maxAttempts = 12;
-
-  while (attempts < maxAttempts) {
-    try {
-      const result = await conversationsApi.getConversationsCalls();
-      const calls = result?.entities || [];
-
-      for (const call of calls) {
-        const participants = call.participants || [];
-        const agent = participants.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-        const popUrl = participants.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
-
-        if (agent?.state === 'connected' && popUrl) {
-          pendingPopUrl = popUrl;
-          document.getElementById('openHomesBtn').disabled = false;
-          updateStatus('Existing call found. Click button to open HOMES CRM.', 'info');
-          return;
-        }
+      if (data.topicName?.includes('conversations.calls')) {
+        handleCallEvent(data.eventBody);
       }
-    } catch {}
+    };
 
-    await new Promise(r => setTimeout(r, 2500));
-    attempts++;
-  }
+    notificationSocket.onclose = () => {
+      updateStatus('WebSocket closed. Reconnecting...', 'warning');
+      setTimeout(() => setupNotifications(userId), 5000);
+    };
 
-  updateStatus('No active calls with screen pop found.', 'info');
-}
-
-/* ===================================================================== */
-
-async function init() {
-  try {
-    updateStatus('Starting initialization...', 'info');
-
-    let config = getQueryParams();
-
-// ✅ FIX — fallback to stored config if query params missing
-if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
-  config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
-}
-    let { token } = parseHashToken();
-
-    // ✅ FIX
-    const expiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
-
-    if (!token || !expiry || Date.now() > expiry) {
-      if (config.gc_clientId && config.gc_region && config.gc_redirectUrl) {
-  localStorage.setItem('homesConfig', JSON.stringify(config));
-}
-
-      // ✅ FIX
-      if (!guardRedirectLoop()) return;
-
-      const oauthHost = getOAuthHost(config.gc_region);
-      const redirectUri = encodeURIComponent(config.gc_redirectUrl);
-
-      // ✅ FIX
-      const state = Math.random().toString(36).substring(2);
-      sessionStorage.setItem('oauth_state', state);
-
-      updateStatus('No valid token found — redirecting to Genesys Cloud login...', 'info');
-
-      window.location.href =
-        `https://${oauthHost}/oauth/authorize?response_type=token` +
-        `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-        `&redirect_uri=${redirectUri}` +
-        `&state=${state}`;
-      return;
-    }
-
-    localStorage.setItem('homesConfig', JSON.stringify(config));
-
-    client.setEnvironment(getApiHost(config.gc_region));
-    client.setPersistSettings(true, 'homesClient');
-    client.setAccessToken(token);
-
-    notificationsApi = new platformClient.NotificationsApi();
-    conversationsApi = new platformClient.ConversationsApi();
-    usersApi = new platformClient.UsersApi();
-
-    currentUser = await safeGetCurrentUser();
-
-    updateStatus(
-  `Logged in successfully as: ${currentUser.name} (${currentUser.email})`,
-  'success'
-);
-
-await checkExistingActiveCalls(currentUser);
-
-// ✅ ADD THIS LINE HERE
-document.getElementById('openHomesBtn')
-  .addEventListener('click', () => openHOMESTab(pendingPopUrl));
-
-
-
-    updateStatus('HOMES Client initialized successfully.', 'success');
+    notificationSocket.onerror = (err) => {
+      console.error(err);
+      updateStatus('WebSocket error.', 'error');
+    };
 
   } catch (err) {
     console.error(err);
-    updateStatus(`Initialization failed: ${err.message}`, 'error');
+    updateStatus('Notification setup failed.', 'error');
   }
 }
 
-function logout() {
-  if (!confirm('Clear all tokens and logout?')) return;
+/* ================= CALL HANDLER ================= */
+function handleCallEvent(eventBody) {
+  try {
+    const participants = eventBody.participants || [];
 
-  if (client) client.logout?.();
+    const agent = participants.find(p =>
+      p.purpose === 'agent' &&
+      p.user?.id === currentUser.id
+    );
+
+    if (!agent) return;
+
+    const popUrl = participants
+      .map(p => p.attributes?.UD_ScreenPop_URL)
+      .find(Boolean);
+
+    if (!pendingPopUrl && agent.state === 'connected' && popUrl) {
+      pendingPopUrl = popUrl;
+
+      document.getElementById('openHomesBtn').disabled = false;
+
+      updateStatus('Call detected — click button to open CRM.', 'info');
+    }
+
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/* ================= OPEN CRM ================= */
+function openHOMESTab(popUrl) {
+  if (!popUrl) {
+    updateStatus('No screen pop URL.', 'warning');
+    return;
+  }
+
+  const email = currentUser?.email || '';
+  const token = localStorage.getItem('homesToken');
+
+  const url = new URL(popUrl);
+  url.searchParams.set('p2', email);
+  if (token) url.searchParams.set('token', token);
+
+  const a = document.createElement('a');
+  a.href = url.toString();
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  updateStatus('CRM opened.', 'success');
+}
+
+/* ================= INIT ================= */
+async function init() {
+  try {
+    updateStatus('Initializing...', 'info');
+
+    let config = getQueryParams();
+    if (!config.gc_clientId) {
+      config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+    }
+
+    let token = parseHashToken();
+
+    if (!token) {
+      redirectToLogin(config);
+      return;
+    }
+
+    client.setEnvironment(getApiHost(config.gc_region));
+    client.setAccessToken(token);
+
+    notificationsApi = new platformClient.NotificationsApi();
+    usersApi = new platformClient.UsersApi();
+
+    currentUser = await usersApi.getUsersMe();
+
+    updateStatus(`Logged in as ${currentUser.name}`, 'success');
+
+    await setupNotifications(currentUser.id);
+
+    document.getElementById('openHomesBtn')
+      .addEventListener('click', () => openHOMESTab(pendingPopUrl));
+
+  } catch (err) {
+    console.error(err);
+    updateStatus('Init failed.', 'error');
+  }
+}
+
+/* ================= LOGOUT ================= */
+function logout() {
+  if (!confirm('Logout?')) return;
+
+  if (notificationSocket) notificationSocket.close();
+
+  client?.logout?.();
+
   localStorage.clear();
-  sessionStorage.clear(); // ✅ FIX
-  window.location.reload();
+  sessionStorage.clear();
+
+  location.reload();
 }
 
 window.onload = init;
