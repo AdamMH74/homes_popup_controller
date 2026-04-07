@@ -272,9 +272,34 @@ function openHOMESTab(popUrl) {
 }
 
 /* ================= INIT ================= */
+let clientApp = null;
+
+function initClientApp() {
+  return new Promise((resolve) => {
+    try {
+      clientApp = new window.PureCloud.ClientApp();
+
+      clientApp.start({
+  pcEnvironment: 'mypurecloud.de'
+});
+
+      clientApp.on('ready', () => {
+        updateStatus('Client App SDK ready.', 'success');
+        resolve();
+      });
+
+    } catch (e) {
+      console.error(e);
+      updateStatus('Client App SDK failed to start.', 'error');
+      resolve(); // don't block app
+    }
+  });
+}
+
 async function init() {
   try {
     updateStatus('Initializing...', 'info');
+	await initClientApp();
 
     let config = getQueryParams();
     if (!config.gc_clientId) {
