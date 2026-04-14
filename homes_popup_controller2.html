@@ -116,7 +116,7 @@ function guardRedirectLoop() {
 }
 
 /* =====================================================================
-   — Force re-auth
+   FIX #1 — Force re-auth
 ===================================================================== */
 function forceReauth() {
   updateStatus('Session expired or invalid — redirecting to login...', 'warning');
@@ -148,10 +148,10 @@ function forceReauth() {
   const oauthHost = getOAuthHost(config.gc_region);
   const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
-  
+  // 
   if (!guardRedirectLoop()) return;
 
-  
+  // 
   const state = Math.random().toString(36).substring(2);
   sessionStorage.setItem('oauth_state', state);
 
@@ -220,7 +220,7 @@ function parseHashToken() {
   let expiresIn = params.get('expires_in');
   let tokenType = params.get('token_type');
 
-  
+  // 
   const returnedState = params.get('state');
   const expectedState = sessionStorage.getItem('oauth_state');
   if (returnedState && expectedState && returnedState !== expectedState) {
@@ -267,44 +267,25 @@ function openHOMESTab(popUrl, forceTestUrl = true) {
     const userEmail = currentUser?.email || '';
     const token = localStorage.getItem('homesToken');
 
-    // Build final URL
+    // Build the final URL
     const finalUrl = new URL(popUrl);
     finalUrl.searchParams.set('p2', userEmail);
     if (token) finalUrl.searchParams.set('token', token);
 
     const urlString = finalUrl.toString();
 
-    updateStatus(`Attempting to open HOMES CRM...`, 'info');
+    // === PRIMARY METHOD: Synthetic <a> click (most reliable for gesture) ===
+    const link = document.createElement('a');
+    link.href = urlString;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';   // Important for security and some blockers
 
-    const left = (screen.width - width) / 2;
-    const top = (screen.height - height) / 2;
+    // Append → click → remove (all synchronous)
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
-    const features = `
-      width=${width},
-      height=${height},
-      top=${top},
-      left=${left},
-      resizable=yes,
-      scrollbars=yes
-    `;
-
-    const newWindow = window.open(urlString, '_blank');
-
-    // === Fallback if popup blocked ===
-    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-      updateStatus('Popup blocked — opening in new tab instead.', 'warning');
-
-      const a = document.createElement('a');
-      a.href = urlString;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } else {
-      updateStatus('HOMES CRM opened in resized window.', 'success');
-    }
+    updateStatus('HOMES CRM tab opened successfully.', 'success');
 
   } catch (err) {
     console.error('openHOMESTab error:', err);
@@ -354,13 +335,13 @@ async function init() {
 
     let config = getQueryParams();
 
-// — fallback to stored config if query params missing
+//  — fallback to stored config if query params missing
 if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
   config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
 }
     let { token } = parseHashToken();
 
-    
+    // 
     const expiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
 
     if (!token || !expiry || Date.now() > expiry) {
@@ -368,13 +349,13 @@ if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
   localStorage.setItem('homesConfig', JSON.stringify(config));
 }
 
-      
+      // 
       if (!guardRedirectLoop()) return;
 
       const oauthHost = getOAuthHost(config.gc_region);
       const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
-     
+      // 
       const state = Math.random().toString(36).substring(2);
       sessionStorage.setItem('oauth_state', state);
 
@@ -407,7 +388,7 @@ if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
 
 await checkExistingActiveCalls(currentUser);
 
-
+// 
 document.getElementById('openHomesBtn')
   .addEventListener('click', () => openHOMESTab(pendingPopUrl));
 
@@ -426,7 +407,7 @@ function logout() {
 
   if (client) client.logout?.();
   localStorage.clear();
-  sessionStorage.clear(); 
+  sessionStorage.clear(); // 
   window.location.reload();
 }
 
