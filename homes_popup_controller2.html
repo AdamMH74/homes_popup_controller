@@ -100,7 +100,7 @@ function updateStatus(message, type = 'info') {
 }
 
 /* =====================================================================
-   ✅ FIX — Redirect loop protection
+    — Redirect loop protection
 ===================================================================== */
 function guardRedirectLoop() {
   const MAX_REDIRECTS = 3;
@@ -116,7 +116,7 @@ function guardRedirectLoop() {
 }
 
 /* =====================================================================
-   FIX #1 — Force re-auth
+   — Force re-auth
 ===================================================================== */
 function forceReauth() {
   updateStatus('Session expired or invalid — redirecting to login...', 'warning');
@@ -148,10 +148,10 @@ function forceReauth() {
   const oauthHost = getOAuthHost(config.gc_region);
   const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
-  // ✅ FIX
+  
   if (!guardRedirectLoop()) return;
 
-  // ✅ FIX
+  
   const state = Math.random().toString(36).substring(2);
   sessionStorage.setItem('oauth_state', state);
 
@@ -220,7 +220,7 @@ function parseHashToken() {
   let expiresIn = params.get('expires_in');
   let tokenType = params.get('token_type');
 
-  // ✅ FIX
+  
   const returnedState = params.get('state');
   const expectedState = sessionStorage.getItem('oauth_state');
   if (returnedState && expectedState && returnedState !== expectedState) {
@@ -257,7 +257,7 @@ function parseHashToken() {
 
 /* ===================================================================== */
 
-function openHOMESTab(popUrl, forceTestUrl = false) {
+function openHOMESTab(popUrl, forceTestUrl = true) {
   if (forceTestUrl || !popUrl) {
     updateStatus('Using forced test URL for HOMES CRM...', 'warning');
     popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
@@ -354,13 +354,13 @@ async function init() {
 
     let config = getQueryParams();
 
-// ✅ FIX — fallback to stored config if query params missing
+// — fallback to stored config if query params missing
 if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
   config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
 }
     let { token } = parseHashToken();
 
-    // ✅ FIX
+    
     const expiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
 
     if (!token || !expiry || Date.now() > expiry) {
@@ -368,13 +368,13 @@ if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
   localStorage.setItem('homesConfig', JSON.stringify(config));
 }
 
-      // ✅ FIX
+      
       if (!guardRedirectLoop()) return;
 
       const oauthHost = getOAuthHost(config.gc_region);
       const redirectUri = encodeURIComponent(config.gc_redirectUrl);
 
-      // ✅ FIX
+     
       const state = Math.random().toString(36).substring(2);
       sessionStorage.setItem('oauth_state', state);
 
@@ -407,7 +407,7 @@ if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
 
 await checkExistingActiveCalls(currentUser);
 
-// ✅ ADD THIS LINE HERE
+
 document.getElementById('openHomesBtn')
   .addEventListener('click', () => openHOMESTab(pendingPopUrl));
 
@@ -426,7 +426,7 @@ function logout() {
 
   if (client) client.logout?.();
   localStorage.clear();
-  sessionStorage.clear(); // ✅ FIX
+  sessionStorage.clear(); 
   window.location.reload();
 }
 
