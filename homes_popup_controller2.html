@@ -257,7 +257,7 @@ function parseHashToken() {
 
 /* ===================================================================== */
 
-function openHOMESTab(popUrl, forceTestUrl = true) {
+function openHOMESTab(popUrl, forceTestUrl = false) {
   if (forceTestUrl || !popUrl) {
     updateStatus('Using forced test URL for HOMES CRM...', 'warning');
     popUrl = 'https://adammh74.github.io/homes_popup_controller/Home_crm.html';
@@ -267,25 +267,44 @@ function openHOMESTab(popUrl, forceTestUrl = true) {
     const userEmail = currentUser?.email || '';
     const token = localStorage.getItem('homesToken');
 
-    // Build the final URL
+    // Build final URL
     const finalUrl = new URL(popUrl);
     finalUrl.searchParams.set('p2', userEmail);
     if (token) finalUrl.searchParams.set('token', token);
 
     const urlString = finalUrl.toString();
 
-    // === PRIMARY METHOD: Synthetic <a> click (most reliable for gesture) ===
-    const link = document.createElement('a');
-    link.href = urlString;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';   // Important for security and some blockers
+    updateStatus(`Attempting to open HOMES CRM...`, 'info');
 
-    // Append → click → remove (all synchronous)
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const left = (screen.width - width) / 2;
+    const top = (screen.height - height) / 2;
 
-    updateStatus('HOMES CRM tab opened successfully.', 'success');
+    const features = `
+      width=${width},
+      height=${height},
+      top=${top},
+      left=${left},
+      resizable=yes,
+      scrollbars=yes
+    `;
+
+    const newWindow = window.open(urlString, '_blank');
+
+    // === Fallback if popup blocked ===
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      updateStatus('Popup blocked — opening in new tab instead.', 'warning');
+
+      const a = document.createElement('a');
+      a.href = urlString;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } else {
+      updateStatus('HOMES CRM opened in resized window.', 'success');
+    }
 
   } catch (err) {
     console.error('openHOMESTab error:', err);
