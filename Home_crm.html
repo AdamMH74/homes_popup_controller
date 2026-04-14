@@ -4,7 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HOMES - CRM</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .center-box {
+            position: absolute;
+            top: 60%;              /* below halfway */
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+    </style>
 </head>
+
 <script>
 function getQueryParams() {
     const params = new URLSearchParams(window.location.search);
@@ -25,19 +46,23 @@ window.onload = () => {
         return;
     }
 
-    // Initialize your CRM logic here using token and user email
-    document.body.innerHTML += `<p>Logged in as ${p2}</p>`;
+    // Display user info
+    const userInfo = document.createElement("p");
+    userInfo.textContent = `Logged in as ${p2}`;
+    document.body.appendChild(userInfo);
 };
 </script>
+
 <body>
-<div align="center" height="20vh" width="60vh" margin-top: 60vh;>
+
+<div class="center-box">
     <h1>Main Page</h1>
 
     <!-- 1. Simple link (same tab) -->
     <p><a href="second.html">Open Second Page (same tab)</a></p>
 
     <!-- 2. Link in new tab -->
-    <p><a href="Https://www.news.com.au" target="_blank">Open Second Page (new tab)</a></p>
+    <p><a href="https://www.news.com.au" target="_blank">Open News (new tab)</a></p>
 
     <!-- 3. Link styled as button -->
     <p>
@@ -55,8 +80,8 @@ window.onload = () => {
 
     <!-- 5. Button with JavaScript (same tab) -->
     <p>
-        <button onclick="window.location.href='Https://www.news.com.au'">
-            Open with JS (same tab)
+        <button onclick="window.location.href='https://www.news.com.au'">
+            Open News (same tab)
         </button>
     </p>
 
@@ -78,14 +103,12 @@ window.onload = () => {
     <p>This page will auto-open second.html in 3 seconds...</p>
 
     <script>
-        // 8. Redirect automatically
         setTimeout(() => {
             console.log("Redirecting...");
-            // Uncomment to enable:
+            // Uncomment to enable redirect:
             // window.location.href = "second.html";
         }, 3000);
 
-        // 9. Function-based open
         function openPage() {
             window.open('second.html', '_blank', 'noopener,noreferrer');
         }
@@ -96,5 +119,6 @@ window.onload = () => {
         <button onclick="openPage()">Open via Function</button>
     </p>
 </div>
+
 </body>
 </html>
