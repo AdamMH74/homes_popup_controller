@@ -297,12 +297,37 @@ function openHOMESTab(url) {
     return;
   }
 
-  const final = new URL(url);
-  final.searchParams.set('p2', currentUser?.email || '');
+  const popup = window.open(url, '_blank', 'noopener');
 
-  window.open(final.toString(), '_blank', 'noopener');
+  if (!popup) {
+    updateStatus('Popup blocked.', 'error');
+    return;
+  }
 
-  updateStatus('Opened HOMES CRM.', 'success');
+  const token = localStorage.getItem('homesToken');
+  const userEmail = currentUser?.email || '';
+
+  const targetOrigin = new URL(url).origin;
+
+  updateStatus('Waiting for popup to initialize...', 'info');
+
+  // Listen for READY signal from popup
+  function handleMessage(event) {
+    if (event.origin !== targetOrigin) return;
+    if (event.data !== 'HOMES_READY') return;
+
+    updateStatus('Popup ready. Sending secure payload...', 'info');
+
+    popup.postMessage({
+      type: 'HOMES_AUTH',
+      token: token,
+      email: userEmail
+    }, targetOrigin);
+
+    window.removeEventListener('message', handleMessage);
+  }
+
+  window.addEventListener('message', handleMessage);
 }
 
 /* ========================= INIT ========================= */
