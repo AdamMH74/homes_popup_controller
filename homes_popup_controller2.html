@@ -71,50 +71,28 @@
 </div>
 
 <script>
-const VERSION = '1.4.0';
-const BLOCKED_AGENT_IDS = ['a45dcb75-1121-4fb0-b956-3fb9437e539e'];
+const VERSION = '1.6.0';
 
-let crmTab = null;
 let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
-let client = platformClient?.ApiClient.instance;
+let client = platformClient.ApiClient.instance;
 
-let notificationsApi = null;
-let conversationsApi = null;
-let usersApi = null;
-
+let conversationsApi, notificationsApi, usersApi;
 let currentUser = null;
 let pendingPopUrl = null;
 
-/* ========================= UI ========================= */
-function updateStatus(message, type = 'info') {
+/* ================= UI ================= */
+function updateStatus(msg, type='info') {
   const box = document.getElementById('statusBox');
-  if (!box) return;
-
   const p = document.createElement('p');
-  p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+  p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   p.classList.add(type);
   box.appendChild(p);
   box.scrollTop = box.scrollHeight;
 
-  console.log(`[HOMES v${VERSION}]`, message);
+  console.log(`[HOMES v${VERSION}]`, msg);
 }
 
-/* ========================= PKCE ========================= */
-async function generateCodeVerifier() {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return btoa(String.fromCharCode(...array))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function generateCodeChallenge(verifier) {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-/* ========================= CONFIG ========================= */
+/* ================= CONFIG ================= */
 function getQueryParams() {
   const p = new URLSearchParams(window.location.search);
   return {
@@ -125,172 +103,112 @@ function getQueryParams() {
 }
 
 function normalizeRegion(region) {
-  if (!region) return null;
-  let r = region.toLowerCase().replace(/^https?:\/\//,'').replace(/^login\./,'').replace(/^api\./,'');
-  if (r.startsWith('purecloud.')) r = 'mypurecloud.' + r.split('purecloud.')[1];
-  return r.includes('mypurecloud') ? r : null;
-}
+  if (!region) return 'mypurecloud.com';
 
-function getOAuthHost(region) {
-  return `login.${normalizeRegion(region) || 'mypurecloud.com'}`;
+  let r = region.toLowerCase()
+    .replace(/^https?:\/\//,'')
+    .replace(/^login\./,'')
+    .replace(/^api\./,'');
+
+  if (r.startsWith('purecloud.')) {
+    r = 'mypurecloud.' + r.split('purecloud.')[1];
+  }
+
+  return r;
 }
 
 function getApiHost(region) {
-  return `api.${normalizeRegion(region) || 'mypurecloud.com'}`;
+  return `https://api.${normalizeRegion(region)}`;
 }
 
-/* ========================= AUTH ========================= */
-function guardRedirectLoop() {
-  const count = parseInt(sessionStorage.getItem('authRedirects') || '0', 10);
-  if (count > 3) {
-    updateStatus('Auth loop detected.', 'error');
-    return false;
-  }
-  sessionStorage.setItem('authRedirects', count + 1);
-  return true;
+/* ================= AUTH ================= */
+async function ensureAuthenticated(config) {
+  client.setEnvironment(getApiHost(config.gc_region));
+
+  await client.loginPKCEGrant(
+    config.gc_clientId,
+    config.gc_redirectUrl
+  );
+
+  updateStatus('Authenticated via PKCE.', 'success');
 }
 
-async function startPKCEAuth(config) {
-  if (!guardRedirectLoop()) return;
-
-  const verifier = await generateCodeVerifier();
-  const challenge = await generateCodeChallenge(verifier);
-
-  sessionStorage.setItem('pkce_verifier', verifier);
-
-  const state = Math.random().toString(36).substring(2);
-  sessionStorage.setItem('oauth_state', state);
-
-  const url =
-    `https://${getOAuthHost(config.gc_region)}/oauth/authorize` +
-    `?response_type=code` +
-    `&client_id=${encodeURIComponent(config.gc_clientId)}` +
-    `&redirect_uri=${encodeURIComponent(config.gc_redirectUrl)}` +
-    `&code_challenge=${challenge}` +
-    `&code_challenge_method=S256` +
-    `&state=${state}`;
-
-  updateStatus('Redirecting to login...', 'info');
-  window.location.href = url;
+/* ================= USER ================= */
+async function loadUser() {
+  usersApi = new platformClient.UsersApi();
+  return await usersApi.getUsersMe();
 }
 
-async function exchangeCodeForToken(code, config) {
-  const verifier = sessionStorage.getItem('pkce_verifier');
+/* ================= NOTIFICATIONS ================= */
+async function setupNotifications(user) {
+  notificationsApi = new platformClient.NotificationsApi();
 
-  const res = await fetch(`https://${getApiHost(config.gc_region)}/oauth/token`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/x-www-form-urlencoded'},
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: config.gc_clientId,
-      code,
-      redirect_uri: config.gc_redirectUrl,
-      code_verifier: verifier
-    })
-  });
+  // Create channel
+  const channel = await notificationsApi.postNotificationsChannels();
 
-  if (!res.ok) throw new Error('Token exchange failed');
+  const channelId = channel.id;
+  const wsUri = channel.connectUri;
 
-  return res.json();
-}
+  updateStatus('Notification channel created.', 'info');
 
-async function handleAuth(config) {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  const state = params.get('state');
+  // Subscribe to user's call conversations
+  await notificationsApi.putNotificationsChannelSubscriptions(channelId, [
+    { id: `v2.users.${user.id}.conversations.calls` }
+  ]);
 
-  const expected = sessionStorage.getItem('oauth_state');
-  if (state && expected && state !== expected) {
-    throw new Error('State mismatch');
-  }
+  updateStatus('Subscribed to call events.', 'success');
 
-  if (code) {
-    const data = await exchangeCodeForToken(code, config);
+  // Open WebSocket
+  const ws = new WebSocket(wsUri);
 
-    const expiry = Date.now() + (data.expires_in * 1000);
+  ws.onopen = () => {
+    updateStatus('WebSocket connected.', 'success');
+  };
 
-    localStorage.setItem('homesToken', data.access_token);
-    localStorage.setItem('homesTokenExpires', expiry);
-    localStorage.setItem('homesRefreshToken', data.refresh_token || '');
-
-    window.history.replaceState({}, document.title, window.location.pathname);
-
-    return data.access_token;
-  }
-
-  const token = localStorage.getItem('homesToken');
-  const expiry = parseInt(localStorage.getItem('homesTokenExpires'), 10);
-
-  if (token && expiry && Date.now() < expiry) {
-    return token;
-  }
-
-  return null;
-}
-
-async function refreshToken(config) {
-  const refresh = localStorage.getItem('homesRefreshToken');
-  if (!refresh) return null;
-
-  const res = await fetch(`https://${getApiHost(config.gc_region)}/oauth/token`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/x-www-form-urlencoded'},
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refresh,
-      client_id: config.gc_clientId
-    })
-  });
-
-  if (!res.ok) return null;
-
-  const data = await res.json();
-
-  const expiry = Date.now() + (data.expires_in * 1000);
-  localStorage.setItem('homesToken', data.access_token);
-  localStorage.setItem('homesTokenExpires', expiry);
-
-  return data.access_token;
-}
-
-/* ========================= API ========================= */
-async function safeGetCurrentUser() {
-  try {
-    return await usersApi.getUsersMe();
-  } catch (e) {
-    updateStatus('Session expired, reauth...', 'warning');
-    await startPKCEAuth(JSON.parse(localStorage.getItem('homesConfig')));
-    throw e;
-  }
-}
-
-/* ========================= CALL CHECK ========================= */
-async function checkExistingActiveCalls(user) {
-  for (let i = 0; i < 10; i++) {
+  ws.onmessage = (msg) => {
     try {
-      const res = await conversationsApi.getConversationsCalls();
-      const calls = res.entities || [];
+      const data = JSON.parse(msg.data);
 
-      for (const call of calls) {
-        const agent = call.participants?.find(p => p.purpose === 'agent' && p.user?.id === user.id);
-        const pop = call.participants?.map(p => p.attributes?.UD_ScreenPop_URL).find(Boolean);
+      if (!data.eventBody) return;
 
-        if (agent?.state === 'connected' && pop) {
-          pendingPopUrl = pop;
-          document.getElementById('openHomesBtn').disabled = false;
-          updateStatus('Active call found.', 'success');
-          return;
-        }
+      const event = data.eventBody;
+
+      const participants = event.participants || [];
+
+      const agent = participants.find(p =>
+        p.purpose === 'agent' &&
+        p.user?.id === user.id
+      );
+
+      const popUrl = participants
+        .map(p => p.attributes?.UD_ScreenPop_URL)
+        .find(Boolean);
+
+      if (agent?.state === 'connected' && popUrl) {
+        pendingPopUrl = popUrl;
+
+        document.getElementById('openHomesBtn').disabled = false;
+
+        updateStatus('📞 Live call detected — ready to open CRM.', 'success');
       }
-    } catch {}
 
-    await new Promise(r => setTimeout(r, 2000));
-  }
+    } catch (err) {
+      console.error('WS parse error', err);
+    }
+  };
 
-  updateStatus('No active calls.', 'info');
+  ws.onerror = (err) => {
+    console.error('WebSocket error', err);
+    updateStatus('WebSocket error.', 'error');
+  };
+
+  ws.onclose = () => {
+    updateStatus('WebSocket closed. Reconnecting in 5s...', 'warning');
+    setTimeout(() => setupNotifications(user), 5000);
+  };
 }
 
-/* ========================= POPUP ========================= */
+/* ================= POPUP ================= */
 function openHOMESTab(url) {
   if (!url) {
     updateStatus('No popup URL.', 'warning');
@@ -304,33 +222,29 @@ function openHOMESTab(url) {
     return;
   }
 
-  const token = localStorage.getItem('homesToken');
-  const userEmail = currentUser?.email || '';
-
+  const token = client.getAccessToken();
+  const email = currentUser?.email || '';
   const targetOrigin = new URL(url).origin;
 
-  updateStatus('Waiting for popup to initialize...', 'info');
-
-  // Listen for READY signal from popup
-  function handleMessage(event) {
+  function handler(event) {
     if (event.origin !== targetOrigin) return;
     if (event.data !== 'HOMES_READY') return;
 
-    updateStatus('Popup ready. Sending secure payload...', 'info');
-
     popup.postMessage({
       type: 'HOMES_AUTH',
-      token: token,
-      email: userEmail
+      token,
+      email
     }, targetOrigin);
 
-    window.removeEventListener('message', handleMessage);
+    window.removeEventListener('message', handler);
   }
 
-  window.addEventListener('message', handleMessage);
+  window.addEventListener('message', handler);
+
+  updateStatus('Popup opened, waiting secure handshake...', 'info');
 }
 
-/* ========================= INIT ========================= */
+/* ================= INIT ================= */
 async function init() {
   try {
     updateStatus('Initializing...', 'info');
@@ -348,32 +262,20 @@ async function init() {
 
     localStorage.setItem('homesConfig', JSON.stringify(config));
 
-    let token = await handleAuth(config);
+    await ensureAuthenticated(config);
 
-    if (!token) {
-      token = await refreshToken(config);
-    }
-
-    if (!token) {
-      await startPKCEAuth(config);
-      return;
-    }
-
-    client.setEnvironment(getApiHost(config.gc_region));
-    client.setAccessToken(token);
-
-    notificationsApi = new platformClient.NotificationsApi();
     conversationsApi = new platformClient.ConversationsApi();
-    usersApi = new platformClient.UsersApi();
 
-    currentUser = await safeGetCurrentUser();
+    currentUser = await loadUser();
 
-    updateStatus(`Logged in: ${currentUser.name}`, 'success');
+    updateStatus(`Logged in as ${currentUser.name}`, 'success');
 
-    await checkExistingActiveCalls(currentUser);
+    await setupNotifications(currentUser);
 
     document.getElementById('openHomesBtn')
       .addEventListener('click', () => openHOMESTab(pendingPopUrl));
+
+    updateStatus('HOMES Client ready (real-time).', 'success');
 
   } catch (err) {
     console.error(err);
@@ -381,7 +283,9 @@ async function init() {
   }
 }
 
+/* ================= LOGOUT ================= */
 function logout() {
+  client.logout();
   localStorage.clear();
   sessionStorage.clear();
   location.reload();
