@@ -129,12 +129,33 @@ function getApiHost(region) {
 async function ensureAuthenticated(config) {
   client.setEnvironment(getApiHost(config.gc_region));
 
-  await client.loginPKCEGrant(
-    config.gc_clientId,
-    config.gc_redirectUrl
-  );
+  try {
+    await client.loginPKCEGrant(
+      config.gc_clientId,
+      config.gc_redirectUrl
+    );
 
-  updateStatus('Authenticated via PKCE.', 'success');
+    updateStatus('Authenticated via PKCE.', 'success');
+
+  } catch (err) {
+
+    // 🔴 If inside iframe → force top window redirect
+    if (window.top !== window.self) {
+      const authUrl = client.createAuthorizeUrl(
+        config.gc_clientId,
+        config.gc_redirectUrl,
+        {},
+        'code'
+      );
+
+      updateStatus('Redirecting to login (top window)...', 'warning');
+
+      window.top.location.href = authUrl;
+      return;
+    }
+
+    throw err;
+  }
 }
 
 /* ================= USER ================= */
