@@ -259,25 +259,23 @@ async function setupNotifications(user) {
 }
 
 /* ================= POPUP ================= */
-function openHOMESTab(url) {
+function openHOMESTab(url, popup) {
   if (!url) {
     updateStatus('No popup URL.', 'warning');
+    popup.close();
     return;
   }
 
   if (popupOpenedForConversation === activeConversationId) {
     updateStatus('Popup already opened for this call.', 'warning');
+    popup.close();
     return;
   }
 
   popupOpenedForConversation = activeConversationId;
 
-  const popup = window.open(url, '_blank', 'noopener');
-
-  if (!popup) {
-    updateStatus('Popup blocked.', 'error');
-    return;
-  }
+  // 🔥 Set URL AFTER popup is created
+  popup.location.href = url;
 
   const token = client.getAccessToken();
   const email = currentUser?.email || '';
@@ -300,11 +298,9 @@ function openHOMESTab(url) {
     window.removeEventListener('message', handler);
   }
 
-  // Prevent stacking listeners
   window.removeEventListener('message', handler);
   window.addEventListener('message', handler);
 
-  // Timeout safety
   setTimeout(() => {
     if (!handshakeCompleted) {
       updateStatus('Popup handshake timeout.', 'warning');
