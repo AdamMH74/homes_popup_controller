@@ -272,7 +272,7 @@ function openHOMESTab(url) {
 
   popupOpenedForConversation = activeConversationId;
 
-  const popup = window.open(url, '_blank', 'noopener');
+  const popup = window.open(url, '_blank');
 
   if (!popup) {
     updateStatus('Popup blocked.', 'error');
