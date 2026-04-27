@@ -79,6 +79,12 @@ let conversationsApi, notificationsApi, usersApi;
 let currentUser = null;
 let pendingPopUrl = null;
 
+/* NEW STATE */
+let activeConversationId = null;
+let popupOpenedForConversation = null;
+let currentChannel = null;
+let lastEventTime = 0;
+
 /* ================= UI ================= */
 function updateStatus(msg, type='info') {
   const box = document.getElementById('statusBox');
@@ -138,26 +144,42 @@ async function loadUser() {
   return await usersApi.getUsersMe();
 }
 
+/* ================= HELPERS ================= */
+function isValidUrl(url) {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /* ================= NOTIFICATIONS ================= */
 async function setupNotifications(user) {
   notificationsApi = new platformClient.NotificationsApi();
 
-  // Create channel
+  // Clean up previous channel
+  if (currentChannel) {
+    try {
+      await notificationsApi.deleteNotificationsChannel(currentChannel.id);
+      updateStatus('Old notification channel removed.', 'info');
+    } catch {}
+  }
+
   const channel = await notificationsApi.postNotificationsChannels();
+  currentChannel = channel;
 
   const channelId = channel.id;
   const wsUri = channel.connectUri;
 
   updateStatus('Notification channel created.', 'info');
 
-  // Subscribe to user's call conversations
   await notificationsApi.putNotificationsChannelSubscriptions(channelId, [
     { id: `v2.users.${user.id}.conversations.calls` }
   ]);
 
   updateStatus('Subscribed to call events.', 'success');
 
-  // Open WebSocket
   const ws = new WebSocket(wsUri);
 
   ws.onopen = () => {
@@ -166,12 +188,15 @@ async function setupNotifications(user) {
 
   ws.onmessage = (msg) => {
     try {
-      const data = JSON.parse(msg.data);
+      // Throttle events
+      const now = Date.now();
+      if (now - lastEventTime < 300) return;
+      lastEventTime = now;
 
+      const data = JSON.parse(msg.data);
       if (!data.eventBody) return;
 
       const event = data.eventBody;
-
       const participants = event.participants || [];
 
       const agent = participants.find(p =>
@@ -183,12 +208,38 @@ async function setupNotifications(user) {
         .map(p => p.attributes?.UD_ScreenPop_URL)
         .find(Boolean);
 
+      updateStatus(
+        `Event: ${event.id} | State: ${agent?.state} | URL: ${!!popUrl}`,
+        'info'
+      );
+
+      // Connected → trigger once
       if (agent?.state === 'connected' && popUrl) {
-        pendingPopUrl = popUrl;
 
-        document.getElementById('openHomesBtn').disabled = false;
+        if (!isValidUrl(popUrl)) {
+          updateStatus('Invalid popup URL received.', 'error');
+          return;
+        }
 
-        updateStatus('📞 Live call detected — ready to open CRM.', 'success');
+        if (event.id !== activeConversationId) {
+          activeConversationId = event.id;
+
+          pendingPopUrl = popUrl;
+          document.getElementById('openHomesBtn').disabled = false;
+
+          updateStatus(`📞 Call ${event.id} ready for CRM`, 'success');
+        }
+      }
+
+      // Disconnected → reset state
+      if (agent?.state === 'disconnected') {
+        activeConversationId = null;
+        pendingPopUrl = null;
+        popupOpenedForConversation = null;
+
+        document.getElementById('openHomesBtn').disabled = true;
+
+        updateStatus('Call ended. State reset.', 'info');
       }
 
     } catch (err) {
@@ -198,7 +249,7 @@ async function setupNotifications(user) {
 
   ws.onerror = (err) => {
     console.error('WebSocket error', err);
-    updateStatus('WebSocket error.', 'error');
+    updateStatus(`WebSocket error: ${err.message || err}`, 'error');
   };
 
   ws.onclose = () => {
@@ -214,6 +265,13 @@ function openHOMESTab(url) {
     return;
   }
 
+  if (popupOpenedForConversation === activeConversationId) {
+    updateStatus('Popup already opened for this call.', 'warning');
+    return;
+  }
+
+  popupOpenedForConversation = activeConversationId;
+
   const popup = window.open(url, '_blank', 'noopener');
 
   if (!popup) {
@@ -225,9 +283,13 @@ function openHOMESTab(url) {
   const email = currentUser?.email || '';
   const targetOrigin = new URL(url).origin;
 
+  let handshakeCompleted = false;
+
   function handler(event) {
     if (event.origin !== targetOrigin) return;
     if (event.data !== 'HOMES_READY') return;
+
+    handshakeCompleted = true;
 
     popup.postMessage({
       type: 'HOMES_AUTH',
@@ -238,7 +300,16 @@ function openHOMESTab(url) {
     window.removeEventListener('message', handler);
   }
 
+  // Prevent stacking listeners
+  window.removeEventListener('message', handler);
   window.addEventListener('message', handler);
+
+  // Timeout safety
+  setTimeout(() => {
+    if (!handshakeCompleted) {
+      updateStatus('Popup handshake timeout.', 'warning');
+    }
+  }, 5000);
 
   updateStatus('Popup opened, waiting secure handshake...', 'info');
 }
@@ -247,6 +318,9 @@ function openHOMESTab(url) {
 async function init() {
   try {
     updateStatus('Initializing...', 'info');
+
+    // Sync version to UI
+    document.getElementById('appVersion').textContent = VERSION;
 
     let config = getQueryParams();
 
