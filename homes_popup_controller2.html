@@ -69,21 +69,25 @@
 <div class="version">
   SDK: purecloud-platform-client-v2 • OAuth: PKCE Grant
 </div>
+
 <script>
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 
 let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
 let client = platformClient.ApiClient.instance;
 
-let conversationsApi, notificationsApi, usersApi;
+let notificationsApi, usersApi;
 let currentUser = null;
 let pendingPopUrl = null;
 
-/* STATE */
+/* ================= STATE ================= */
 let activeConversationId = null;
 let popupOpenedForConversation = null;
 let currentChannel = null;
-let lastEventTime = 0;
+let ws = null;
+let reconnectTimer = null;
+
+let conversationStates = {};
 
 /* ================= UI ================= */
 function updateStatus(msg, type='info') {
@@ -93,7 +97,6 @@ function updateStatus(msg, type='info') {
   p.classList.add(type);
   box.appendChild(p);
   box.scrollTop = box.scrollHeight;
-
   console.log(`[HOMES v${VERSION}]`, msg);
 }
 
@@ -109,16 +112,13 @@ function getQueryParams() {
 
 function normalizeRegion(region) {
   if (!region) return 'mypurecloud.com';
-
   let r = region.toLowerCase()
     .replace(/^https?:\/\//,'')
     .replace(/^login\./,'')
     .replace(/^api\./,'');
-
   if (r.startsWith('purecloud.')) {
     r = 'mypurecloud.' + r.split('purecloud.')[1];
   }
-
   return r;
 }
 
@@ -129,12 +129,7 @@ function getApiHost(region) {
 /* ================= AUTH ================= */
 async function ensureAuthenticated(config) {
   client.setEnvironment(getApiHost(config.gc_region));
-
-  await client.loginPKCEGrant(
-    config.gc_clientId,
-    config.gc_redirectUrl
-  );
-
+  await client.loginPKCEGrant(config.gc_clientId, config.gc_redirectUrl);
   updateStatus('Authenticated via PKCE.', 'success');
 }
 
@@ -146,17 +141,119 @@ async function loadUser() {
 
 /* ================= VALIDATION ================= */
 function isValidUrl(url) {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
+  try { new URL(url); return true; } catch { return false; }
+}
+
+/* ================= MESSAGE HANDLER ================= */
+function handleNotificationMessage(msg, user) {
+  const data = JSON.parse(msg.data);
+  if (!data.eventBody) return;
+
+  const event = data.eventBody;
+  const participants = event.participants || [];
+
+  const agent = participants.find(p =>
+    p.purpose === 'agent' &&
+    p.user?.id === user.id
+  );
+
+  if (!agent) return;
+
+  const conversationId = event.id;
+  const newState = agent.state;
+
+  const popUrl = participants
+    .map(p => p.attributes?.UD_ScreenPop_URL)
+    .find(Boolean);
+
+  const endStates = ['disconnected', 'terminated'];
+
+  if (!conversationStates[conversationId]) {
+    conversationStates[conversationId] = { lastState: null };
   }
+
+  if (conversationStates[conversationId].lastState === newState) {
+    return;
+  }
+
+  conversationStates[conversationId].lastState = newState;
+
+  const isActive = activeConversationId === conversationId;
+
+  /* CALL START */
+  if (!activeConversationId && newState === 'connected' && popUrl) {
+
+    if (!isValidUrl(popUrl)) {
+      updateStatus('Invalid popup URL received.', 'error');
+      return;
+    }
+
+    activeConversationId = conversationId;
+    pendingPopUrl = popUrl;
+
+    document.getElementById('openHomesBtn').disabled = false;
+
+    updateStatus(`📞 Call ${conversationId} ready for CRM`, 'success');
+  }
+
+  /* CALL END */
+  if (isActive && endStates.includes(newState)) {
+
+    updateStatus(`Call ended (${newState}). State reset.`, 'info');
+
+    activeConversationId = null;
+    pendingPopUrl = null;
+    popupOpenedForConversation = null;
+
+    document.getElementById('openHomesBtn').disabled = true;
+  }
+
+  if (endStates.includes(newState)) {
+    delete conversationStates[conversationId];
+  }
+
+  if (agent.state !== 'terminated') {
+    updateStatus(`Event: ${conversationId} | State: ${newState}`, 'info');
+  }
+}
+
+/* ================= WEBSOCKET ================= */
+function connectWebSocket(channel, user) {
+
+  if (ws) ws.close();
+
+  ws = new WebSocket(channel.connectUri);
+
+  ws.onopen = () => {
+    updateStatus('WebSocket connected.', 'success');
+  };
+
+  ws.onmessage = (msg) => {
+    handleNotificationMessage(msg, user);
+  };
+
+  ws.onerror = () => {
+    updateStatus('WebSocket error.', 'error');
+  };
+
+  ws.onclose = () => {
+    updateStatus('WebSocket closed. Reconnecting...', 'warning');
+
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      setupNotifications(user).catch(() => {
+        updateStatus('Reconnect failed.', 'error');
+      });
+    }, 2000);
+  };
 }
 
 /* ================= NOTIFICATIONS ================= */
 async function setupNotifications(user) {
+
   notificationsApi = new platformClient.NotificationsApi();
+
+  if (ws) ws.close();
 
   if (currentChannel) {
     try {
@@ -167,127 +264,37 @@ async function setupNotifications(user) {
   const channel = await notificationsApi.postNotificationsChannels();
   currentChannel = channel;
 
-  const channelId = channel.id;
-  const wsUri = channel.connectUri;
-
-  updateStatus('Notification channel created.', 'info');
-
-  await notificationsApi.putNotificationsChannelSubscriptions(channelId, [
+  await notificationsApi.putNotificationsChannelSubscriptions(channel.id, [
     { id: `v2.users.${user.id}.conversations.calls` }
   ]);
 
-  const ws = new WebSocket(wsUri);
+  connectWebSocket(channel, user);
 
-  ws.onmessage = (msg) => {
-    try {
-      const now = Date.now();
-      if (now - lastEventTime < 300) return;
-      lastEventTime = now;
-
-      const data = JSON.parse(msg.data);
-      if (!data.eventBody) return;
-
-      const event = data.eventBody;
-      const participants = event.participants || [];
-
-      const agent = participants.find(p =>
-        p.purpose === 'agent' &&
-        p.user?.id === user.id
-      );
-
-      const popUrl = participants
-        .map(p => p.attributes?.UD_ScreenPop_URL)
-        .find(Boolean);
-
-      updateStatus(
-        `Event: ${event.id} | State: ${agent?.state} | URL: ${!!popUrl}`,
-        'info'
-      );
-
-      /* CALL START */
-      if (agent?.state === 'connected' && popUrl) {
-
-        if (!isValidUrl(popUrl)) {
-          updateStatus('Invalid popup URL received.', 'error');
-          return;
-        }
-
-        if (event.id !== activeConversationId) {
-
-          activeConversationId = event.id;
-          pendingPopUrl = popUrl;
-
-          document.getElementById('openHomesBtn').disabled = false;
-
-          updateStatus(`📞 Call ${event.id} ready for CRM`, 'success');
-        }
-      }
-
-      /* CALL END */
-      const endStates = ['disconnected', 'terminated'];
-
-if (agent && endStates.includes(agent.state)) {
-  activeConversationId = null;
-  pendingPopUrl = null;
-  popupOpenedForConversation = null;
-
-  document.getElementById('openHomesBtn').disabled = true;
-
-  updateStatus(`Call ended (${agent.state}). State reset.`, 'info');
-}
-
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  updateStatus('Notification channel ready.', 'info');
 }
 
 /* ================= POPUP ================= */
 function openHOMESTab(url, popup) {
 
-  if (!popup) {
-    updateStatus('Popup handle missing.', 'error');
-    return;
-  }
+  if (!popup || !url) return;
 
-  if (!url) {
-    updateStatus('No CRM URL available.', 'warning');
-    if (popup && !popup.closed) popup.close();
-    return;
-  }
-
-  /* prevent duplicate popup per call */
-  if (
-    popupOpenedForConversation &&
-    popupOpenedForConversation === activeConversationId
-  ) {
-    updateStatus('Popup already opened for this call.', 'warning');
-    if (popup && !popup.closed) popup.close();
+  if (popupOpenedForConversation === activeConversationId) {
+    popup.close();
     return;
   }
 
   popupOpenedForConversation = activeConversationId;
 
-  let targetOrigin;
-  try {
-    targetOrigin = new URL(url).origin;
-  } catch {
-    updateStatus('Invalid CRM URL', 'error');
-    return;
-  }
+  const targetOrigin = new URL(url).origin;
 
   popup.location.replace(url);
 
   const token = client.getAccessToken();
   const email = currentUser?.email || '';
 
-  let handshakeCompleted = false;
-
   function handler(event) {
     if (event.origin !== targetOrigin) return;
-    if (event.data !== 'HOMES_READY') return;
-
-    handshakeCompleted = true;
+    if (event.data?.type !== 'HOMES_READY') return;
 
     popup.postMessage({
       type: 'HOMES_AUTH',
@@ -300,31 +307,20 @@ function openHOMESTab(url, popup) {
 
   window.addEventListener('message', handler);
 
-  setTimeout(() => {
-    if (!handshakeCompleted) {
-      updateStatus('Popup handshake timeout.', 'warning');
-    }
-  }, 5000);
-
-  updateStatus('Popup opened, waiting secure handshake...', 'info');
+  updateStatus('Popup opened, waiting handshake...', 'info');
 }
 
-/* ================= CLICK HANDLER ================= */
+/* ================= CLICK ================= */
 document.getElementById('openHomesBtn')
 .addEventListener('click', () => {
 
   const popup = window.open('', '_blank');
 
-  if (!popup) {
-    updateStatus('Popup blocked.', 'error');
-    return;
-  }
+  if (!popup) return updateStatus('Popup blocked.', 'error');
 
-  /* SAFE: no polling, no race condition */
   if (!pendingPopUrl) {
-    updateStatus('No CRM URL available yet. Wait for call connection.', 'warning');
     popup.close();
-    return;
+    return updateStatus('No CRM URL.', 'warning');
   }
 
   openHOMESTab(pendingPopUrl, popup);
@@ -358,10 +354,9 @@ async function init() {
 
     await setupNotifications(currentUser);
 
-    updateStatus('HOMES Client ready (real-time).', 'success');
+    updateStatus('HOMES ready.', 'success');
 
   } catch (err) {
-    console.error(err);
     updateStatus(err.message, 'error');
   }
 }
