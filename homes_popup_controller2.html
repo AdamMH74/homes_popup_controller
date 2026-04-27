@@ -70,7 +70,89 @@
   SDK: purecloud-platform-client-v2 • OAuth: PKCE Grant
 </div>
 <script>
-// ... everything above unchanged ...
+const VERSION = '1.6.0';
+
+let platformClient = window.platformClient || (window.require ? window.require('platformClient') : null);
+let client = platformClient.ApiClient.instance;
+
+let conversationsApi, notificationsApi, usersApi;
+let currentUser = null;
+let pendingPopUrl = null;
+
+/* STATE */
+let activeConversationId = null;
+let popupOpenedForConversation = null;
+let currentChannel = null;
+let lastEventTime = 0;
+
+/* ================= UI ================= */
+function updateStatus(msg, type='info') {
+  const box = document.getElementById('statusBox');
+  const p = document.createElement('p');
+  p.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  p.classList.add(type);
+  box.appendChild(p);
+  box.scrollTop = box.scrollHeight;
+
+  console.log(`[HOMES v${VERSION}]`, msg);
+}
+
+/* ================= CONFIG ================= */
+function getQueryParams() {
+  const p = new URLSearchParams(window.location.search);
+  return {
+    gc_clientId: p.get('gc_clientId'),
+    gc_region: p.get('gc_region'),
+    gc_redirectUrl: p.get('gc_redirectUrl')
+  };
+}
+
+function normalizeRegion(region) {
+  if (!region) return 'mypurecloud.com';
+
+  let r = region.toLowerCase()
+    .replace(/^https?:\/\//,'')
+    .replace(/^login\./,'')
+    .replace(/^api\./,'');
+
+  if (r.startsWith('purecloud.')) {
+    r = 'mypurecloud.' + r.split('purecloud.')[1];
+  }
+
+  return r;
+}
+
+function getApiHost(region) {
+  return `https://api.${normalizeRegion(region)}`;
+}
+
+/* ================= AUTH ================= */
+async function ensureAuthenticated(config) {
+  client.setEnvironment(getApiHost(config.gc_region));
+
+  await client.loginPKCEGrant(
+    config.gc_clientId,
+    config.gc_redirectUrl
+  );
+
+  updateStatus('Authenticated via PKCE.', 'success');
+}
+
+/* ================= USER ================= */
+async function loadUser() {
+  usersApi = new platformClient.UsersApi();
+  return await usersApi.getUsersMe();
+}
+
+/* ================= VALIDATION ================= */
+function isValidUrl(url) {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /* ================= NOTIFICATIONS ================= */
 async function setupNotifications(user) {
@@ -79,7 +161,6 @@ async function setupNotifications(user) {
   if (currentChannel) {
     try {
       await notificationsApi.deleteNotificationsChannel(currentChannel.id);
-      updateStatus('Old notification channel removed.', 'info');
     } catch {}
   }
 
@@ -123,7 +204,7 @@ async function setupNotifications(user) {
         'info'
       );
 
-      // ================= FIX #2: NEW CALL RESET =================
+      /* CALL START */
       if (agent?.state === 'connected' && popUrl) {
 
         if (!isValidUrl(popUrl)) {
@@ -132,10 +213,6 @@ async function setupNotifications(user) {
         }
 
         if (event.id !== activeConversationId) {
-
-          // 🔥 RESET OLD STATE BEFORE SWITCHING CALL
-          popupOpenedForConversation = null;
-          pendingPopUrl = null;
 
           activeConversationId = event.id;
           pendingPopUrl = popUrl;
@@ -146,6 +223,7 @@ async function setupNotifications(user) {
         }
       }
 
+      /* CALL END */
       if (agent?.state === 'disconnected') {
         activeConversationId = null;
         pendingPopUrl = null;
@@ -171,14 +249,14 @@ function openHOMESTab(url, popup) {
   }
 
   if (!url) {
-    updateStatus('No popup URL.', 'warning');
+    updateStatus('No CRM URL available.', 'warning');
     if (popup && !popup.closed) popup.close();
     return;
   }
 
-  // ================= FIX #1: CLEAN STATE CHECK =================
+  /* prevent duplicate popup per call */
   if (
-    activeConversationId &&
+    popupOpenedForConversation &&
     popupOpenedForConversation === activeConversationId
   ) {
     updateStatus('Popup already opened for this call.', 'warning');
@@ -195,6 +273,8 @@ function openHOMESTab(url, popup) {
     updateStatus('Invalid CRM URL', 'error');
     return;
   }
+
+  popup.location.replace(url);
 
   const token = client.getAccessToken();
   const email = currentUser?.email || '';
@@ -227,7 +307,7 @@ function openHOMESTab(url, popup) {
   updateStatus('Popup opened, waiting secure handshake...', 'info');
 }
 
-/* ================= INIT (FIX #3 ONLY) ================= */
+/* ================= CLICK HANDLER ================= */
 document.getElementById('openHomesBtn')
 .addEventListener('click', () => {
 
@@ -238,30 +318,61 @@ document.getElementById('openHomesBtn')
     return;
   }
 
-  // ================= FIX #3: RACE CONDITION HANDLING =================
+  /* SAFE: no polling, no race condition */
   if (!pendingPopUrl) {
-    updateStatus('Waiting for CRM URL...', 'warning');
-
-    const wait = setInterval(() => {
-      if (pendingPopUrl) {
-        clearInterval(wait);
-        openHOMESTab(pendingPopUrl, popup);
-      }
-    }, 200);
-
-    setTimeout(() => {
-      clearInterval(wait);
-      if (!pendingPopUrl) {
-        updateStatus('CRM URL not received in time.', 'error');
-        popup.close();
-      }
-    }, 5000);
-
+    updateStatus('No CRM URL available yet. Wait for call connection.', 'warning');
+    popup.close();
     return;
   }
 
   openHOMESTab(pendingPopUrl, popup);
 });
+
+/* ================= INIT ================= */
+async function init() {
+  try {
+    updateStatus('Initializing...', 'info');
+
+    document.getElementById('appVersion').textContent = VERSION;
+
+    let config = getQueryParams();
+
+    if (!config.gc_clientId) {
+      config = JSON.parse(localStorage.getItem('homesConfig') || '{}');
+    }
+
+    if (!config.gc_clientId || !config.gc_region || !config.gc_redirectUrl) {
+      updateStatus('Missing config.', 'error');
+      return;
+    }
+
+    localStorage.setItem('homesConfig', JSON.stringify(config));
+
+    await ensureAuthenticated(config);
+
+    currentUser = await loadUser();
+
+    updateStatus(`Logged in as ${currentUser.name}`, 'success');
+
+    await setupNotifications(currentUser);
+
+    updateStatus('HOMES Client ready (real-time).', 'success');
+
+  } catch (err) {
+    console.error(err);
+    updateStatus(err.message, 'error');
+  }
+}
+
+/* ================= LOGOUT ================= */
+function logout() {
+  client.logout();
+  localStorage.clear();
+  sessionStorage.clear();
+  location.reload();
+}
+
+window.onload = init;
 </script>
 </body>
 </html>
