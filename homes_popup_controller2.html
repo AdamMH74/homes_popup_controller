@@ -260,22 +260,31 @@ async function setupNotifications(user) {
 
 /* ================= POPUP ================= */
 function openHOMESTab(url, popup) {
+
+  if (!popup) {
+    updateStatus('Popup handle missing.', 'error');
+    return;
+  }
   if (!url) {
     updateStatus('No popup URL.', 'warning');
-    popup.close();
+    if (popup && !popup.closed) {
+  popup.close();
+}
     return;
   }
 
   if (popupOpenedForConversation === activeConversationId) {
     updateStatus('Popup already opened for this call.', 'warning');
-    popup.close();
+    if (!popup.closed) {
+  popup.close();
+}
     return;
   }
 
   popupOpenedForConversation = activeConversationId;
 
   // 🔥 Set URL AFTER popup is created
-  popup.location.href = url;
+  popup.location.replace(url);
 
   const token = client.getAccessToken();
   const email = currentUser?.email || '';
@@ -342,7 +351,18 @@ async function init() {
     await setupNotifications(currentUser);
 
     document.getElementById('openHomesBtn')
-      .addEventListener('click', () => openHOMESTab(pendingPopUrl));
+  .addEventListener('click', () => {
+
+    // MUST happen immediately on click
+    const popup = window.open('', '_blank');
+
+    if (!popup) {
+      updateStatus('Popup blocked.', 'error');
+      return;
+    }
+
+    openHOMESTab(pendingPopUrl, popup);
+  });
 
     updateStatus('HOMES Client ready (real-time).', 'success');
 
