@@ -224,15 +224,17 @@ async function setupNotifications(user) {
       }
 
       /* CALL END */
-      if (agent?.state === 'disconnected') {
-        activeConversationId = null;
-        pendingPopUrl = null;
-        popupOpenedForConversation = null;
+      const endStates = ['disconnected', 'terminated'];
 
-        document.getElementById('openHomesBtn').disabled = true;
+if (agent && endStates.includes(agent.state)) {
+  activeConversationId = null;
+  pendingPopUrl = null;
+  popupOpenedForConversation = null;
 
-        updateStatus('Call ended. State reset.', 'info');
-      }
+  document.getElementById('openHomesBtn').disabled = true;
+
+  updateStatus(`Call ended (${agent.state}). State reset.`, 'info');
+}
 
     } catch (err) {
       console.error(err);
