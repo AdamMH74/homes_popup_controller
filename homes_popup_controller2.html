@@ -88,6 +88,7 @@ let ws = null;
 let reconnectTimer = null;
 
 let conversationStates = {};
+let accessToken = null; // ✅ FIX ADDED
 
 /* ================= UI ================= */
 function updateStatus(msg, type='info') {
@@ -129,7 +130,18 @@ function getApiHost(region) {
 /* ================= AUTH ================= */
 async function ensureAuthenticated(config) {
   client.setEnvironment(getApiHost(config.gc_region));
-  await client.loginPKCEGrant(config.gc_clientId, config.gc_redirectUrl);
+
+  const tokenResponse = await client.loginPKCEGrant(
+    config.gc_clientId,
+    config.gc_redirectUrl
+  );
+
+  // ✅ SAFE TOKEN CAPTURE
+  accessToken =
+    tokenResponse?.access_token ||
+    client.authData?.accessToken ||
+    null;
+
   updateStatus('Authenticated via PKCE.', 'success');
 }
 
@@ -172,15 +184,12 @@ function handleNotificationMessage(msg, user) {
     conversationStates[conversationId] = { lastState: null };
   }
 
-  if (conversationStates[conversationId].lastState === newState) {
-    return;
-  }
+  if (conversationStates[conversationId].lastState === newState) return;
 
   conversationStates[conversationId].lastState = newState;
 
   const isActive = activeConversationId === conversationId;
 
-  /* CALL START */
   if (!activeConversationId && newState === 'connected' && popUrl) {
 
     if (!isValidUrl(popUrl)) {
@@ -196,7 +205,6 @@ function handleNotificationMessage(msg, user) {
     updateStatus(`📞 Call ${conversationId} ready for CRM`, 'success');
   }
 
-  /* CALL END */
   if (isActive && endStates.includes(newState)) {
 
     updateStatus(`Call ended (${newState}). State reset.`, 'info');
@@ -224,26 +232,18 @@ function connectWebSocket(channel, user) {
 
   ws = new WebSocket(channel.connectUri);
 
-  ws.onopen = () => {
-    updateStatus('WebSocket connected.', 'success');
-  };
+  ws.onopen = () => updateStatus('WebSocket connected.', 'success');
 
-  ws.onmessage = (msg) => {
-    handleNotificationMessage(msg, user);
-  };
+  ws.onmessage = (msg) => handleNotificationMessage(msg, user);
 
-  ws.onerror = () => {
-    updateStatus('WebSocket error.', 'error');
-  };
+  ws.onerror = () => updateStatus('WebSocket error.', 'error');
 
   ws.onclose = () => {
     updateStatus('WebSocket closed. Reconnecting...', 'warning');
 
     clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(() => {
-      setupNotifications(user).catch(() => {
-        updateStatus('Reconnect failed.', 'error');
-      });
+      setupNotifications(user);
     }, 2000);
   };
 }
@@ -289,7 +289,8 @@ function openHOMESTab(url, popup) {
 
   popup.location.replace(url);
 
-  const token = client.getAccessToken();
+  // ✅ FIXED TOKEN USAGE
+  const token = accessToken || client.authData?.accessToken;
   const email = currentUser?.email || '';
 
   function handler(event) {
